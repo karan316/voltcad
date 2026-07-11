@@ -1,0 +1,70 @@
+import { useState } from "react";
+import { MessageSquare, Layers } from "lucide-react";
+import { ChatPanel } from "./ChatPanel.tsx";
+import { ModelPanel } from "./ModelPanel.tsx";
+import { useEditorStore } from "../state/document-store.ts";
+
+/** Left sidebar: brand header + CHAT / MODEL tabs. */
+export function Sidebar(props: { onOpenSettings: () => void }) {
+  const [tab, setTab] = useState<"chat" | "model">("chat");
+  const featureCount = useEditorStore((s) => s.doc.features.length);
+  const paramCount = useEditorStore((s) => s.doc.parameters ? Object.keys(s.doc.parameters).length : 0);
+  const hasErrors = useEditorStore((s) =>
+    Object.values(s.statuses).some((x) => x.status === "error"),
+  );
+
+  return (
+    <aside
+      className="z-10 flex w-80 shrink-0 flex-col border-r"
+      style={{ background: "var(--surface-solid)", borderColor: "var(--border)" }}
+    >
+      <div className="flex items-center px-4 pt-4 pb-2">
+        <span className="text-[15px] font-bold tracking-[0.18em]">VOLTCAD</span>
+      </div>
+
+      <div className="flex items-center gap-4 border-b px-4" style={{ borderColor: "var(--border)" }}>
+        <TabButton
+          icon={<MessageSquare size={12} />}
+          label="Chat"
+          active={tab === "chat"}
+          onClick={() => setTab("chat")}
+        />
+        <TabButton
+          icon={<Layers size={12} />}
+          label={`Model · ${featureCount}`}
+          active={tab === "model"}
+          onClick={() => setTab("model")}
+          dot={hasErrors}
+        />
+        <span className="micro-label ml-auto pb-2">{paramCount} params</span>
+      </div>
+
+      {tab === "chat" ? <ChatPanel onOpenSettings={props.onOpenSettings} /> : <ModelPanel />}
+    </aside>
+  );
+}
+
+function TabButton(props: {
+  icon: React.ReactNode;
+  label: string;
+  active: boolean;
+  dot?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      className="micro-label relative flex items-center gap-1.5 border-b-2 pb-2 pt-1 transition-colors"
+      style={{
+        borderColor: props.active ? "var(--accent)" : "transparent",
+        color: props.active ? "var(--text)" : "var(--text-muted)",
+      }}
+      onClick={props.onClick}
+    >
+      {props.icon}
+      {props.label}
+      {props.dot && (
+        <span className="h-1 w-1 rounded-full" style={{ background: "var(--err)" }} />
+      )}
+    </button>
+  );
+}

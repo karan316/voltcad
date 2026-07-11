@@ -38,6 +38,8 @@ interface EditorState {
   regenMs: number;
   /** bump to let the viewport know highlights/scene need re-sync */
   sceneVersion: number;
+  /** bump to ask the viewport to re-frame the model */
+  fitCounter: number;
 
   selection: Selection[];
   hovered: Selection | null;
@@ -59,6 +61,7 @@ interface EditorState {
   select(sel: Selection, additive: boolean): void;
   clearSelection(): void;
   setActiveFeature(id: string | null): void;
+  requestFit(): void;
 
   exportModel(format: "step" | "stl"): Promise<void>;
 }
@@ -97,6 +100,14 @@ function defaultDocument(): PartDocument {
 
 let regenRunning = false;
 let regenPending = false;
+/** Callers awaiting the regen pipeline to drain (AI tools need results). */
+let regenWaiters: (() => void)[] = [];
+
+/** Resolves when the regen pipeline is idle (all queued docs processed). */
+export function regenSettled(): Promise<void> {
+  if (!regenRunning) return Promise.resolve();
+  return new Promise((resolve) => regenWaiters.push(resolve));
+}
 
 async function runRegen(
   get: () => EditorState,
@@ -136,6 +147,9 @@ async function runRegen(
   } finally {
     regenRunning = false;
     set({ regenBusy: false });
+    const waiters = regenWaiters;
+    regenWaiters = [];
+    for (const w of waiters) w();
   }
 }
 
@@ -157,6 +171,7 @@ export const useEditorStore = create<EditorState>((set, get) => {
     regenBusy: false,
     regenMs: 0,
     sceneVersion: 0,
+    fitCounter: 0,
     selection: [],
     hovered: null,
     activeFeatureId: null,
@@ -243,6 +258,10 @@ export const useEditorStore = create<EditorState>((set, get) => {
 
     setActiveFeature(id) {
       set({ activeFeatureId: id });
+    },
+
+    requestFit() {
+      set({ fitCounter: get().fitCounter + 1 });
     },
 
     async exportModel(format) {

@@ -1,20 +1,16 @@
+import { Box, Cylinder, Maximize, Slice, Spline } from "lucide-react";
 import { newFeatureId, q } from "@voltcad/model-api";
 import { useEditorStore } from "../state/document-store.ts";
 
 /**
- * Feature creation toolbar.
- *
- * v1 provides parametric primitive insertion + selection-driven dressing
- * features (fillet/chamfer). The interactive 2D sketcher replaces the
- * primitive dialogs in the next milestone — features created here are
- * ordinary sketch/extrude nodes, fully editable in the inspector.
+ * Floating modeling toolbar — icon buttons with tooltips.
+ * Primitive tools insert ordinary sketch+extrude features (fully editable);
+ * dressing tools (fillet/chamfer) act on the current edge selection.
  */
 export function Toolbar() {
   const addFeatures = useEditorStore((s) => s.addFeatures);
   const selection = useEditorStore((s) => s.selection);
-  const exportModel = useEditorStore((s) => s.exportModel);
-  const regenBusy = useEditorStore((s) => s.regenBusy);
-  const kernelStatus = useEditorStore((s) => s.kernelStatus);
+  const requestFit = useEditorStore((s) => s.requestFit);
   const selectedEdges = selection.filter((s) => s.kind === "edge");
 
   const addBox = () => {
@@ -35,7 +31,7 @@ export function Toolbar() {
         name: "Box",
         params: { sketch: sk, distance: 25, symmetric: false, op: "new" },
       },
-    ] as never);
+    ]);
   };
 
   const addCylinder = () => {
@@ -56,10 +52,10 @@ export function Toolbar() {
         name: "Cylinder",
         params: { sketch: sk, distance: 30, symmetric: false, op: "add" },
       },
-    ] as never);
+    ]);
   };
 
-  const addFillet = (kind: "fillet" | "chamfer") => {
+  const addDressing = (kind: "fillet" | "chamfer") => {
     if (selectedEdges.length === 0) return;
     addFeatures([
       {
@@ -70,59 +66,41 @@ export function Toolbar() {
           [kind === "fillet" ? "radius" : "distance"]: 2,
         },
       },
-    ] as never);
+    ]);
     useEditorStore.getState().clearSelection();
   };
 
-  return (
-    <div className="glass-panel flex items-center gap-1 px-2 py-1.5">
-      <span className="mr-2 bg-gradient-to-r from-sky-300 to-indigo-300 bg-clip-text px-1 text-sm font-bold tracking-wide text-transparent">
-        VoltCAD
-      </span>
-      <ToolButton label="Box" onClick={addBox} />
-      <ToolButton label="Cylinder" onClick={addCylinder} />
-      <div className="mx-1 h-5 w-px bg-white/10" />
-      <ToolButton
-        label={`Fillet${selectedEdges.length ? ` (${selectedEdges.length})` : ""}`}
-        disabled={selectedEdges.length === 0}
-        title="Select edges in the viewport first"
-        onClick={() => addFillet("fillet")}
-      />
-      <ToolButton
-        label="Chamfer"
-        disabled={selectedEdges.length === 0}
-        title="Select edges in the viewport first"
-        onClick={() => addFillet("chamfer")}
-      />
-      <div className="mx-1 h-5 w-px bg-white/10" />
-      <ToolButton label="STEP" title="Export STEP" onClick={() => void exportModel("step")} />
-      <ToolButton label="STL" title="Export STL" onClick={() => void exportModel("stl")} />
-      <div className="flex-1" />
-      {kernelStatus === "loading" && (
-        <span className="animate-pulse text-xs text-sky-300">loading kernel…</span>
-      )}
-      {regenBusy && kernelStatus === "ready" && (
-        <span className="animate-pulse text-xs text-sky-300">regenerating…</span>
-      )}
-      {kernelStatus === "error" && <span className="text-xs text-red-400">kernel error</span>}
-    </div>
-  );
-}
+  const edgeSuffix = selectedEdges.length > 0 ? ` (${selectedEdges.length} edges)` : " — select edges first";
 
-function ToolButton(props: {
-  label: string;
-  onClick: () => void;
-  disabled?: boolean;
-  title?: string;
-}) {
   return (
-    <button
-      className="rounded-md px-2.5 py-1 text-xs font-medium text-slate-300 transition-colors hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-35"
-      onClick={props.onClick}
-      disabled={props.disabled}
-      title={props.title}
-    >
-      {props.label}
-    </button>
+    <div className="glass-panel flex items-center gap-0.5 px-1.5 py-1">
+      <button className="tool-btn" data-tip="Insert box" onClick={addBox}>
+        <Box size={16} strokeWidth={1.7} />
+      </button>
+      <button className="tool-btn" data-tip="Insert cylinder" onClick={addCylinder}>
+        <Cylinder size={16} strokeWidth={1.7} />
+      </button>
+      <div className="tool-sep" />
+      <button
+        className="tool-btn"
+        data-tip={`Fillet${edgeSuffix}`}
+        disabled={selectedEdges.length === 0}
+        onClick={() => addDressing("fillet")}
+      >
+        <Spline size={16} strokeWidth={1.7} />
+      </button>
+      <button
+        className="tool-btn"
+        data-tip={`Chamfer${edgeSuffix}`}
+        disabled={selectedEdges.length === 0}
+        onClick={() => addDressing("chamfer")}
+      >
+        <Slice size={16} strokeWidth={1.7} />
+      </button>
+      <div className="tool-sep" />
+      <button className="tool-btn" data-tip="Fit view" onClick={requestFit}>
+        <Maximize size={16} strokeWidth={1.7} />
+      </button>
+    </div>
   );
 }

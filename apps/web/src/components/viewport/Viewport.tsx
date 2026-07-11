@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useEditorStore } from "../../state/document-store.ts";
+import { useThemeStore } from "../../state/theme-store.ts";
 import { SceneManager } from "./scene-manager.ts";
 
 /**
@@ -18,6 +19,7 @@ export function Viewport() {
     if (!el) return;
     const manager = new SceneManager(el);
     managerRef.current = manager;
+    manager.setTheme(useThemeStore.getState().theme);
     let cancelled = false;
 
     void manager.init().then(() => {
@@ -55,9 +57,19 @@ export function Viewport() {
           }
           manager.setHighlights(state.hovered, state.selection);
         }
+        if (state.fitCounter !== prev.fitCounter) manager.fitToModel();
         if (state.hovered !== prev.hovered || state.selection !== prev.selection) {
           manager.setHighlights(state.hovered, state.selection);
         }
+      }),
+    [],
+  );
+
+  // theme changes
+  useEffect(
+    () =>
+      useThemeStore.subscribe((state) => {
+        managerRef.current?.setTheme(state.theme);
       }),
     [],
   );

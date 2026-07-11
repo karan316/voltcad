@@ -18,14 +18,34 @@ CameraControls.install({ THREE });
  *  - All body edges render as ONE LineSegments draw call per body.
  */
 
-const COLORS = {
-  background: 0x0b0f14,
-  body: 0x9fb2c8,
-  edge: 0x1c2733,
-  sketch: 0x4f8ff7,
-  hover: 0x63b3ff,
-  selected: 0xffb020,
-};
+const THEMES = {
+  light: {
+    background: 0xe8e6e1,
+    body: 0xe3e0d8,
+    edge: 0x3a3d42,
+    sketch: 0x2f6fdb,
+    hover: 0x3b82f6,
+    selected: 0xe8590c,
+    grid: 0xd2cfc8,
+    gridCenter: 0xc2bfb8,
+    hemiSky: 0xffffff,
+    hemiGround: 0x8a8a80,
+  },
+  dark: {
+    background: 0x101318,
+    body: 0x9fb2c8,
+    edge: 0x1c2733,
+    sketch: 0x4f8ff7,
+    hover: 0x63b3ff,
+    selected: 0xffa94d,
+    grid: 0x1a222c,
+    gridCenter: 0x2a3340,
+    hemiSky: 0xdfe8f5,
+    hemiGround: 0x1a2027,
+  },
+} as const;
+
+export type ViewportTheme = keyof typeof THEMES;
 
 interface BodyView {
   data: BodyMesh;
@@ -47,17 +67,20 @@ export class SceneManager {
   private bodies: BodyView[] = [];
   private dirty = true;
   private disposed = false;
+  private theme: ViewportTheme = "dark";
+  private grid: THREE.GridHelper | null = null;
+  private hemi!: THREE.HemisphereLight;
 
   private bodyMaterial = new THREE.MeshStandardMaterial({
-    color: COLORS.body,
+    color: THEMES.dark.body,
     metalness: 0.05,
     roughness: 0.55,
     side: THREE.DoubleSide,
   });
-  private edgeMaterial = new THREE.LineBasicMaterial({ color: COLORS.edge });
-  private sketchMaterial = new THREE.LineBasicMaterial({ color: COLORS.sketch });
+  private edgeMaterial = new THREE.LineBasicMaterial({ color: THEMES.dark.edge });
+  private sketchMaterial = new THREE.LineBasicMaterial({ color: THEMES.dark.sketch });
   private hoverFaceMaterial = new THREE.MeshBasicMaterial({
-    color: COLORS.hover,
+    color: THEMES.dark.hover,
     transparent: true,
     opacity: 0.35,
     depthWrite: false,
@@ -66,7 +89,7 @@ export class SceneManager {
     side: THREE.DoubleSide,
   });
   private selectedFaceMaterial = new THREE.MeshBasicMaterial({
-    color: 0xffb020,
+    color: THEMES.dark.selected,
     transparent: true,
     opacity: 0.45,
     depthWrite: false,
@@ -74,8 +97,8 @@ export class SceneManager {
     polygonOffsetFactor: -2,
     side: THREE.DoubleSide,
   });
-  private hoverEdgeMaterial = new THREE.LineBasicMaterial({ color: COLORS.hover, linewidth: 2 });
-  private selectedEdgeMaterial = new THREE.LineBasicMaterial({ color: 0xffb020, linewidth: 2 });
+  private hoverEdgeMaterial = new THREE.LineBasicMaterial({ color: THEMES.dark.hover, linewidth: 2 });
+  private selectedEdgeMaterial = new THREE.LineBasicMaterial({ color: THEMES.dark.selected, linewidth: 2 });
 
   constructor(private container: HTMLElement) {
     this.camera = new THREE.PerspectiveCamera(45, 1, 0.1, 50_000);
@@ -94,7 +117,6 @@ export class SceneManager {
     }
     this.renderer = renderer;
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    this.renderer.setClearColor(COLORS.background);
     this.container.appendChild(this.renderer.domElement);
 
     this.controls = new CameraControls(this.camera, this.renderer.domElement);
@@ -104,7 +126,8 @@ export class SceneManager {
     this.controls.mouseButtons.right = CameraControls.ACTION.TRUCK;
 
     // lighting tuned for neutral machined-part look
-    this.scene.add(new THREE.HemisphereLight(0xdfe8f5, 0x1a2027, 1.1));
+    this.hemi = new THREE.HemisphereLight(0xdfe8f5, 0x1a2027, 1.1);
+    this.scene.add(this.hemi);
     const key = new THREE.DirectionalLight(0xffffff, 1.4);
     key.position.set(200, -150, 300);
     this.scene.add(key);
@@ -112,16 +135,42 @@ export class SceneManager {
     fill.position.set(-150, 200, -100);
     this.scene.add(fill);
 
-    const grid = new THREE.GridHelper(500, 50, 0x2a3340, 0x1a222c);
-    grid.rotation.x = Math.PI / 2; // XY plane
-    this.scene.add(grid);
     this.scene.add(new THREE.AxesHelper(30));
     this.scene.add(this.modelGroup, this.sketchGroup, this.highlightGroup);
 
     this.raycaster.params.Line.threshold = 0.8;
 
+    this.setTheme(this.theme); // applies clear color, grid, materials
     this.resize();
     this.loop();
+  }
+
+  /** Re-color the viewport for light/dark UI theme. Cheap: no geometry work. */
+  setTheme(theme: ViewportTheme): void {
+    this.theme = theme;
+    const t = THEMES[theme];
+    this.renderer?.setClearColor(t.background);
+    this.bodyMaterial.color.setHex(t.body);
+    this.edgeMaterial.color.setHex(t.edge);
+    this.sketchMaterial.color.setHex(t.sketch);
+    this.hoverFaceMaterial.color.setHex(t.hover);
+    this.hoverEdgeMaterial.color.setHex(t.hover);
+    this.selectedFaceMaterial.color.setHex(t.selected);
+    this.selectedEdgeMaterial.color.setHex(t.selected);
+    if (this.hemi) {
+      this.hemi.color.setHex(t.hemiSky);
+      this.hemi.groundColor.setHex(t.hemiGround);
+    }
+    // GridHelper colors are baked into vertex colors — rebuild it
+    if (this.grid) {
+      this.grid.geometry.dispose();
+      (this.grid.material as THREE.Material).dispose();
+      this.scene.remove(this.grid);
+    }
+    this.grid = new THREE.GridHelper(500, 50, t.gridCenter, t.grid);
+    this.grid.rotation.x = Math.PI / 2; // XY plane
+    this.scene.add(this.grid);
+    this.dirty = true;
   }
 
   /** Swap in a freshly regenerated scene. Old GPU buffers are freed. */
