@@ -1,0 +1,21 @@
+{
+  "name": "@voltcad/model-api",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Kernel-agnostic parametric model API: feature document, expressions, entity queries, feature registry (the FeatureScript layer)",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.2",
+    "vitest": "^4.1.5"
+  }
+}

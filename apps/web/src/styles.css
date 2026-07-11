@@ -1,0 +1,77 @@
+
+@import "tailwindcss";
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  overscroll-behavior: none;
+  user-select: none;
+}
+
+/* ---- VoltCAD glass surfaces ------------------------------------------- */
+
+.glass-panel {
+  border-radius: 0.65rem;
+  border: 1px solid rgb(255 255 255 / 0.08);
+  background: rgb(17 23 31 / 0.72);
+  backdrop-filter: blur(14px) saturate(1.3);
+  -webkit-backdrop-filter: blur(14px) saturate(1.3);
+  box-shadow:
+    0 1px 0 rgb(255 255 255 / 0.05) inset,
+    0 8px 28px rgb(0 0 0 / 0.45);
+}
+
+.panel-title {
+  padding: 0.45rem 0.75rem;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgb(148 163 184);
+  border-bottom: 1px solid rgb(255 255 255 / 0.07);
+}
+
+.icon-btn {
+  border-radius: 0.3rem;
+  padding: 0 0.3rem;
+  font-size: 0.7rem;
+  color: rgb(148 163 184);
+}
+.icon-btn:hover {
+  background: rgb(255 255 255 / 0.1);
+  color: white;
+}
+
+.field-label {
+  display: block;
+  margin-top: 0.6rem;
+  margin-bottom: 0.2rem;
+  font-size: 0.68rem;
+  font-weight: 500;
+  color: rgb(148 163 184);
+}
+
+.field-input {
+  width: 100%;
+  border-radius: 0.4rem;
+  border: 1px solid rgb(255 255 255 / 0.1);
+  background: rgb(0 0 0 / 0.3);
+  padding: 0.3rem 0.55rem;
+  font-size: 0.8rem;
+  color: rgb(226 232 240);
+  outline: none;
+}
+.field-input:focus {
+  border-color: rgb(56 189 248 / 0.5);
+}
+
+

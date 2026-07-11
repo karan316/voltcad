@@ -1,0 +1,24 @@
+{
+  "name": "@voltcad/geometry-worker",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "OpenCascade WASM kernel adapter: ModelContext implementation, persistent naming, tessellation. Runs in a dedicated Web Worker.",
+  "exports": {
+    ".": "./src/client.ts",
+    "./api": "./src/api.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@voltcad/features-std": "workspace:*",
+    "@voltcad/model-api": "workspace:*",
+    "comlink": "^4.4.2",
+    "opencascade.js": "2.0.0-beta.b5ff984"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.2",
+    "vite": "^8.0.0"
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "name": "@voltcad/features-std",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Built-in parametric features (sketch, extrude, revolve, fillet, chamfer) — pure ModelContext consumers",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@voltcad/model-api": "workspace:*",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.2"
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "name": "voltcad",
+  "private": true,
+  "version": "0.0.1",
+  "description": "Browser-based parametric CAD with an AI spatial copilot",
+  "type": "module",
+  "scripts": {
+    "dev": "pnpm --filter @voltcad/web dev",
+    "build": "pnpm --filter @voltcad/web build",
+    "test": "pnpm -r test",
+    "typecheck": "pnpm -r typecheck"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "lightningcss"
+    ]
+  },
+  "packageManager": "pnpm@10.33.0"
+}
