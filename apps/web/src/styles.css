@@ -26,6 +26,8 @@
   --err: #d64545;
   --select: #e8590c;
   --hover-hl: #2b50e8;
+  --hover-soft: rgb(43 80 232 / 0.08);
+  --accent-soft: #e9edfb;
   --shadow-panel:
     0 0 0 0.5px rgb(24 32 63 / 0.04),
     0 1px 2px rgb(24 32 63 / 0.05),
@@ -53,13 +55,50 @@
   --err: #ff6b6b;
   --select: #ffa94d;
   --hover-hl: #7d97ff;
+  --hover-soft: rgb(125 151 255 / 0.12);
+  --accent-soft: #242c50;
   --shadow-panel:
     0 0 0 0.5px rgb(160 175 255 / 0.08),
     0 1px 2px rgb(0 0 0 / 0.5),
     0 16px 40px -12px rgb(0 0 0 / 0.65);
 }
 
+/* ---- shadcn/radix component tokens → mapped onto VoltCAD design vars ----- */
+
+@theme inline {
+  --color-background: var(--surface-solid);
+  --color-foreground: var(--text);
+  --color-primary: var(--accent);
+  --color-primary-foreground: var(--accent-contrast);
+  --color-secondary: var(--surface-raised);
+  --color-secondary-foreground: var(--text);
+  --color-muted: var(--surface-raised);
+  --color-muted-foreground: var(--text-muted);
+  --color-accent: var(--accent-soft);
+  --color-accent-foreground: var(--text);
+  --color-popover: var(--surface-solid);
+  --color-popover-foreground: var(--text);
+  --color-destructive: var(--err);
+  --color-destructive-foreground: #ffffff;
+  --color-border: var(--border);
+  --color-input: var(--border-strong);
+  --color-ring: var(--accent);
+  --radius-lg: 12px;
+  --radius-md: 10px;
+  --radius-sm: 8px;
+}
+
 /* ---- base --------------------------------------------------------------- */
+
+/* Tailwind v4 defaults un-colored `border` utilities to currentColor;
+   map them to the theme border token (shadcn/basecn components rely on this) */
+@layer base {
+  *,
+  ::after,
+  ::before {
+    border-color: var(--border);
+  }
+}
 
 * {
   box-sizing: border-box;

@@ -13,6 +13,25 @@ import {
 } from "lucide-react";
 import type { FeatureNode } from "@voltcad/model-api";
 import { useEditorStore } from "../state/document-store.ts";
+import { Checkbox } from "./ui/checkbox.tsx";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectPositioner,
+  SelectTrigger,
+  SelectValue,
+} from "./ui/select.tsx";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "./ui/alert-dialog.tsx";
 
 /**
  * MODEL tab — feature history + named parameters.
@@ -24,6 +43,8 @@ export function ModelPanel() {
   const statuses = useEditorStore((s) => s.statuses);
   const activeId = useEditorStore((s) => s.activeFeatureId);
   const setActive = useEditorStore((s) => s.setActiveFeature);
+  const removeFeature = useEditorStore((s) => s.removeFeature);
+  const [pendingDelete, setPendingDelete] = useState<FeatureNode | null>(null);
 
   return (
     <div className="chat-scroll flex-1 overflow-y-auto">
@@ -41,9 +62,34 @@ export function ModelPanel() {
           error={statuses[f.id]?.error?.message}
           expanded={activeId === f.id}
           onToggle={() => setActive(activeId === f.id ? null : f.id)}
+          onDelete={() => setPendingDelete(f)}
         />
       ))}
       <ParametersSection />
+
+      <AlertDialog open={pendingDelete !== null} onOpenChange={(open) => !open && setPendingDelete(null)}>
+        <AlertDialogContent className="glass-panel border-0">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete “{pendingDelete?.name}”?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Features that depend on it may fail to regenerate. This can be undone by
+              re-adding the feature, but its references will need repair.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-white hover:bg-destructive/90"
+              onClick={() => {
+                if (pendingDelete) removeFeature(pendingDelete.id);
+                setPendingDelete(null);
+              }}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
@@ -56,16 +102,23 @@ const FEATURE_ICONS: Record<string, typeof PenLine> = {
   chamfer: Scissors,
 };
 
+const OP_ITEMS: Record<string, string> = {
+  new: "New body",
+  add: "Add",
+  cut: "Cut",
+  intersect: "Intersect",
+};
+
 function FeatureRow(props: {
   feature: FeatureNode;
   status?: string;
   error?: string;
   expanded: boolean;
   onToggle: () => void;
+  onDelete: () => void;
 }) {
   const { feature: f } = props;
   const toggleSuppress = useEditorStore((s) => s.toggleSuppress);
-  const removeFeature = useEditorStore((s) => s.removeFeature);
   const Icon = FEATURE_ICONS[f.type] ?? Plus;
   const Chevron = props.expanded ? ChevronDown : ChevronRight;
 
@@ -95,8 +148,7 @@ function FeatureRow(props: {
             data-tip="Delete"
             onClick={(e) => {
               e.stopPropagation();
-              if (window.confirm(`Delete "${f.name}"? Dependent features may fail.`))
-                removeFeature(f.id);
+              props.onDelete();
             }}
           >
             <Trash2 size={12} style={{ color: "var(--err)" }} />
@@ -131,22 +183,29 @@ function FeatureEditor({ feature: f }: { feature: FeatureNode }) {
             onCommit={(v) => setField(f.type === "extrude" ? "distance" : "angle", v)}
           />
           <label className="field-label">Result</label>
-          <select
-            className="field-input"
+          <Select
+            items={OP_ITEMS}
             value={String(params.op ?? "new")}
-            onChange={(e) => setField("op", e.target.value)}
+            onValueChange={(v) => setField("op", String(v))}
           >
-            <option value="new">New body</option>
-            <option value="add">Add</option>
-            <option value="cut">Cut</option>
-            <option value="intersect">Intersect</option>
-          </select>
+            <SelectTrigger size="sm" className="w-full font-mono text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectPositioner>
+              <SelectContent className="font-mono text-xs">
+                {Object.entries(OP_ITEMS).map(([value, label]) => (
+                  <SelectItem key={value} value={value} className="py-1 text-xs">
+                    {label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </SelectPositioner>
+          </Select>
           {f.type === "extrude" && (
-            <label className="mt-2 flex items-center gap-2 text-xs" style={{ color: "var(--text-secondary)" }}>
-              <input
-                type="checkbox"
+            <label className="mt-2.5 flex items-center gap-2 text-xs" style={{ color: "var(--text-secondary)" }}>
+              <Checkbox
                 checked={Boolean(params.symmetric)}
-                onChange={(e) => setField("symmetric", e.target.checked)}
+                onCheckedChange={(v) => setField("symmetric", v === true)}
               />
               Symmetric
             </label>

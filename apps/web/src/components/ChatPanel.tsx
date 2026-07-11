@@ -83,11 +83,13 @@ export function ChatPanel(props: { onOpenSettings: () => void }) {
 
       <div className="border-t p-3" style={{ borderColor: "var(--border)" }}>
         <div
-          className="flex items-end gap-2 rounded-xl border px-3 py-2"
+          className="flex items-end gap-2 rounded-[10px] border px-2.5 py-1.5"
           style={{ borderColor: "var(--border-strong)", background: "var(--surface-solid)" }}
         >
+          {/* leading-5 + py-1 = 28px single-line height, matching the 28px
+              send button exactly so placeholder/text sit optically centered */}
           <textarea
-            className="max-h-32 min-h-[20px] flex-1 resize-none bg-transparent text-[13px] leading-relaxed outline-none"
+            className="max-h-32 flex-1 resize-none bg-transparent py-1 text-[13px] leading-5 outline-none"
             placeholder="describe the part…"
             rows={1}
             value={draft}
@@ -105,7 +107,7 @@ export function ChatPanel(props: { onOpenSettings: () => void }) {
           />
           {status === "working" ? (
             <button
-              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg"
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[7px]"
               style={{ background: "var(--accent)", color: "var(--accent-contrast)" }}
               onClick={stop}
               data-tip="Stop"
@@ -114,7 +116,7 @@ export function ChatPanel(props: { onOpenSettings: () => void }) {
             </button>
           ) : (
             <button
-              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg transition-opacity disabled:opacity-30"
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[7px] transition-opacity disabled:opacity-30"
               style={{ background: "var(--accent)", color: "var(--accent-contrast)" }}
               onClick={submit}
               disabled={!draft.trim()}
