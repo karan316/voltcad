@@ -48,15 +48,19 @@ export function ChatPanel(props: { onOpenSettings: () => void }) {
         )}
         {messages.map((m) =>
           m.role === "user" ? (
-            <div key={m.id} className="mb-4">
-              <div className="micro-label mb-1">You</div>
-              <p className="text-[13px] font-medium leading-relaxed">
+            <div key={m.id} className="mb-4 flex justify-end">
+              <p
+                className="max-w-[85%] rounded-2xl rounded-br-md px-3.5 py-2 text-[13px] font-medium leading-relaxed"
+                style={{ background: "var(--accent)", color: "var(--accent-contrast)" }}
+              >
                 {m.segments.map((s) => (s.kind === "text" ? s.text : "")).join("")}
               </p>
             </div>
           ) : (
             <div key={m.id} className="mb-4">
-              <div className="micro-label mb-1">Copilot</div>
+              <div className="micro-label mb-1" style={{ color: "var(--label)" }}>
+                Copilot <span style={{ color: "var(--text-muted)" }}>· AI</span>
+              </div>
               {m.segments.length === 0 && status === "working" && (
                 <Loader2 size={14} className="animate-spin" style={{ color: "var(--text-muted)" }} />
               )}

@@ -29,7 +29,13 @@ export function TopBar(props: { onOpenSettings: () => void }) {
 
   return (
     <div className="glass-panel flex h-11 items-center gap-2 px-3">
-      <span className="micro-label flex items-center gap-1.5">
+      <span
+        className="status-pill"
+        style={{
+          background: kernelStatus === "error" ? "rgb(214 69 69 / 0.12)" : regenBusy || kernelStatus === "loading" ? "rgb(232 89 12 / 0.12)" : "var(--ok-bg)",
+          color: statusColor,
+        }}
+      >
         <span
           className={`inline-block h-1.5 w-1.5 rounded-full ${regenBusy ? "animate-pulse" : ""}`}
           style={{ background: statusColor }}

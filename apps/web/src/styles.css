@@ -7,52 +7,56 @@
 /* ---- design tokens ------------------------------------------------------ */
 
 :root {
-  /* warm engineering-paper light theme */
-  --bg: #e8e6e1;
-  --surface: rgb(255 255 255 / 0.82);
-  --surface-solid: #fbfbfa;
-  --surface-raised: rgb(255 255 255 / 0.92);
-  --border: rgb(20 22 26 / 0.09);
-  --border-strong: rgb(20 22 26 / 0.16);
-  --text: #17181a;
-  --text-secondary: #4b5058;
-  --text-muted: #878d96;
-  --accent: #17181a;
+  /* cool engineering-blue light theme */
+  --bg: #edeff4;
+  --surface: rgb(255 255 255 / 0.72);
+  --surface-solid: #ffffff;
+  --surface-raised: rgb(255 255 255 / 0.9);
+  --border: rgb(24 32 63 / 0.08);
+  --border-strong: rgb(24 32 63 / 0.16);
+  --text: #171c2b;
+  --text-secondary: #454d63;
+  --text-muted: #8a91a5;
+  --accent: #1d2c9c;
   --accent-contrast: #ffffff;
+  --label: #2b50e8;
   --status: #e8590c;
-  --ok: #12945e;
+  --ok: #157a4e;
+  --ok-bg: #d9f2e2;
   --err: #d64545;
   --select: #e8590c;
-  --hover-hl: #3b82f6;
+  --hover-hl: #2b50e8;
   --shadow-panel:
-    0 0 0 0.5px rgb(20 22 26 / 0.05),
-    0 1px 2px rgb(20 22 26 / 0.06),
-    0 12px 32px -8px rgb(20 22 26 / 0.14);
+    0 0 0 0.5px rgb(24 32 63 / 0.04),
+    0 1px 2px rgb(24 32 63 / 0.05),
+    0 16px 40px -12px rgb(24 32 63 / 0.18);
   --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", monospace;
 }
 
 .dark {
-  --bg: #101318;
-  --surface: rgb(23 27 34 / 0.82);
-  --surface-solid: #161a21;
-  --surface-raised: rgb(29 34 43 / 0.92);
-  --border: rgb(255 255 255 / 0.08);
-  --border-strong: rgb(255 255 255 / 0.16);
-  --text: #e8ecf2;
-  --text-secondary: #aab3bf;
-  --text-muted: #6c7683;
-  --accent: #e8ecf2;
-  --accent-contrast: #12151a;
+  --bg: #0d1020;
+  --surface: rgb(23 28 48 / 0.72);
+  --surface-solid: #141830;
+  --surface-raised: rgb(30 36 60 / 0.9);
+  --border: rgb(160 175 255 / 0.1);
+  --border-strong: rgb(160 175 255 / 0.2);
+  --text: #e7eaf6;
+  --text-secondary: #a8b0cd;
+  --text-muted: #666f92;
+  --accent: #6b8afd;
+  --accent-contrast: #0c1024;
+  --label: #7d97ff;
   --status: #ff7a2f;
-  --ok: #2fbd85;
+  --ok: #34c98e;
+  --ok-bg: rgb(52 201 142 / 0.14);
   --err: #ff6b6b;
   --select: #ffa94d;
-  --hover-hl: #63b3ff;
+  --hover-hl: #7d97ff;
   --shadow-panel:
-    0 0 0 0.5px rgb(255 255 255 / 0.06),
+    0 0 0 0.5px rgb(160 175 255 / 0.08),
     0 1px 2px rgb(0 0 0 / 0.5),
-    0 12px 32px -8px rgb(0 0 0 / 0.6);
+    0 16px 40px -12px rgb(0 0 0 / 0.65);
 }
 
 /* ---- base --------------------------------------------------------------- */
@@ -103,6 +107,20 @@ body {
 .panel-title {
   padding: 10px 14px;
   border-bottom: 1px solid var(--border);
+}
+
+/* status pill ("live", "on track" style) */
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 /* ---- toolbar ------------------------------------------------------------- */

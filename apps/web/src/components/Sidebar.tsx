@@ -1,10 +1,10 @@
 import { useState } from "react";
-import { MessageSquare, Layers } from "lucide-react";
+import { MessageSquare, Layers, Zap } from "lucide-react";
 import { ChatPanel } from "./ChatPanel.tsx";
 import { ModelPanel } from "./ModelPanel.tsx";
 import { useEditorStore } from "../state/document-store.ts";
 
-/** Left sidebar: brand header + CHAT / MODEL tabs. */
+/** Left sidebar: floating glass panel with brand header + CHAT / MODEL tabs. */
 export function Sidebar(props: { onOpenSettings: () => void }) {
   const [tab, setTab] = useState<"chat" | "model">("chat");
   const featureCount = useEditorStore((s) => s.doc.features.length);
@@ -14,12 +14,15 @@ export function Sidebar(props: { onOpenSettings: () => void }) {
   );
 
   return (
-    <aside
-      className="z-10 flex w-80 shrink-0 flex-col border-r"
-      style={{ background: "var(--surface-solid)", borderColor: "var(--border)" }}
-    >
-      <div className="flex items-center px-4 pt-4 pb-2">
-        <span className="text-[15px] font-bold tracking-[0.18em]">VOLTCAD</span>
+    <aside className="glass-panel z-10 flex w-80 shrink-0 flex-col overflow-hidden">
+      <div className="flex items-center gap-2 px-4 pt-4 pb-2">
+        <span
+          className="flex h-6 w-6 items-center justify-center rounded-md"
+          style={{ background: "var(--accent)", color: "var(--accent-contrast)" }}
+        >
+          <Zap size={13} strokeWidth={2.2} style={{ color: "var(--status)" }} fill="var(--status)" />
+        </span>
+        <span className="text-[14px] font-bold tracking-[0.16em]">VOLTCAD</span>
       </div>
 
       <div className="flex items-center gap-4 border-b px-4" style={{ borderColor: "var(--border)" }}>
@@ -55,8 +58,8 @@ function TabButton(props: {
     <button
       className="micro-label relative flex items-center gap-1.5 border-b-2 pb-2 pt-1 transition-colors"
       style={{
-        borderColor: props.active ? "var(--accent)" : "transparent",
-        color: props.active ? "var(--text)" : "var(--text-muted)",
+        borderColor: props.active ? "var(--label)" : "transparent",
+        color: props.active ? "var(--label)" : "var(--text-muted)",
       }}
       onClick={props.onClick}
     >

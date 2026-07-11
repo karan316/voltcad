@@ -23,10 +23,10 @@ function Editor() {
   }, [])
 
   return (
-    <div className="flex h-dvh w-dvw overflow-hidden" style={{ background: 'var(--bg)' }}>
+    <div className="flex h-dvh w-dvw gap-3 overflow-hidden p-3" style={{ background: 'var(--bg)' }}>
       <Sidebar onOpenSettings={() => setSettingsOpen(true)} />
 
-      <main className="relative min-w-0 flex-1">
+      <main className="relative min-w-0 flex-1 overflow-hidden rounded-xl" style={{ boxShadow: 'var(--shadow-panel)' }}>
         <Viewport />
 
         {/* floating chrome over the viewport */}

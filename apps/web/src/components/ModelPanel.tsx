@@ -189,7 +189,7 @@ function ParametersSection() {
       <div className="px-4 pb-6">
         {Object.entries(parameters).map(([name, value]) => (
           <div key={name} className="group mb-1.5 flex items-center gap-2">
-            <span className="w-24 truncate font-mono text-[11px]" style={{ color: "var(--text-secondary)" }}>
+            <span className="w-24 truncate font-mono text-[11px] font-medium" style={{ color: "var(--label)" }}>
               {name}
             </span>
             <CommitInline value={String(value)} onCommit={(v) => setParameter(name, v)} />
