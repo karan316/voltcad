@@ -1,5 +1,6 @@
 import {
   regenerateDocument,
+  toErrorInfo,
   type FeatureStatus,
   type PartDocument,
   type SceneUpdate,
@@ -64,6 +65,28 @@ function disposeUnreferenced(candidates: Set<FaceNameMap>, keep: Set<FaceNameMap
   for (const m of candidates) if (!keep.has(m)) m.dispose();
 }
 
+/**
+ * OCCT throws C++ exceptions that surface in JS as raw numbers (emscripten
+ * heap pointers) — useless to users and, critically, to the AI's
+ * self-correction loop. Decode them into real messages.
+ */
+function decodeKernelError(oc: OC, e: unknown): Error {
+  if (typeof e === "number") {
+    try {
+      const failure = oc.OCJS.getStandard_FailureData(e);
+      const msg = failure.GetMessageString();
+      return new Error(
+        `Kernel exception: ${msg || "geometry operation failed"} — usually caused by self-intersecting or overlapping sketch profiles, or an operation exceeding the geometry's limits`,
+      );
+    } catch {
+      return new Error(
+        "Kernel exception — usually caused by self-intersecting or overlapping sketch profiles",
+      );
+    }
+  }
+  return e instanceof Error ? e : new Error(String(e));
+}
+
 export interface IncrementalResult {
   statuses: FeatureStatus[];
   scene: SceneUpdate;
@@ -97,6 +120,10 @@ export function regenerateIncremental(oc: OC, doc: PartDocument): IncrementalRes
   const newStatuses = regenerateDocument(doc, ctx, registry, {
     startIndex: prefix,
     onFeature: (status, index) => {
+      // decode raw emscripten exception pointers into readable messages
+      if (status.status === "error" && status.error && /^\d+$/.test(status.error.message)) {
+        status.error = toErrorInfo(decodeKernelError(oc, Number(status.error.message)));
+      }
       cache.push({ key: keys[index]!, snap: ctx!.snapshot(), status });
     },
   });

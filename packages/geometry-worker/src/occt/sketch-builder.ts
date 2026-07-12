@@ -180,6 +180,44 @@ function pointInPolygon(p: Point2, poly: Point2[]): boolean {
   return inside;
 }
 
+/** Proper segment-segment intersection (excluding shared endpoints). */
+function segmentsIntersect(a1: Point2, a2: Point2, b1: Point2, b2: Point2): boolean {
+  const d = (p: Point2, q: Point2, r: Point2) =>
+    (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]);
+  const d1 = d(b1, b2, a1);
+  const d2 = d(b1, b2, a2);
+  const d3 = d(a1, a2, b1);
+  const d4 = d(a1, a2, b2);
+  return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0));
+}
+
+/**
+ * Reject loop pairs that CROSS each other. Overlapping profiles produce
+ * self-intersecting faces that make OCCT throw opaque kernel exceptions
+ * deep inside extrude/boolean — catching it here yields an actionable error
+ * (and gives the AI copilot something it can actually self-correct from).
+ */
+function assertLoopsDontCross(polygons: Point2[][]): void {
+  for (let i = 0; i < polygons.length; i++) {
+    for (let j = i + 1; j < polygons.length; j++) {
+      const a = polygons[i]!;
+      const b = polygons[j]!;
+      for (let k = 0; k < a.length; k++) {
+        for (let m = 0; m < b.length; m++) {
+          if (
+            segmentsIntersect(a[k]!, a[(k + 1) % a.length]!, b[m]!, b[(m + 1) % b.length]!)
+          ) {
+            throw new RegenError(
+              "INVALID_PARAMS",
+              "Sketch profile loops overlap/cross each other. Loops must be either fully separate or fully nested (nested = hole). To build a compound outline, use ONE closed chain of lines/arcs, or extrude separate shapes with op \"add\".",
+            );
+          }
+        }
+      }
+    }
+  }
+}
+
 export interface BuiltProfile {
   face: TopoDS_Face;
   /** Profile boundary edges tagged with the sketch entity that produced them. */
@@ -227,6 +265,7 @@ export function buildProfiles(
 
   // classify nesting: a loop contained in an odd number of others is a hole
   const polygons = loops.map(samplePolygon);
+  assertLoopsDontCross(polygons);
   const depth = loops.map((_, i) =>
     polygons.reduce(
       (d, poly, j) => (j !== i && pointInPolygon(polygons[i]![0]!, poly) ? d + 1 : d),

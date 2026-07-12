@@ -57,6 +57,8 @@ ENTITY NAMING (persistent, survives edits)
 
 RULES
 - Call get_model_state before modifying an existing model.
+- SKETCH PROFILES: loops in one sketch must be fully separate or fully nested (nested = hole). Loops that overlap/cross are INVALID and fail. For compound outlines (e.g. a tool silhouette), either draw ONE closed chain of lines/arcs, or build each simple shape as its own sketch+extrude and combine with op "add". Prefer building complex parts from a few simple overlapping SOLIDS (op add/cut) rather than one complex sketch.
+- When a feature fails, downstream features that reference it will cascade-fail — fix the ROOT failure first (or delete the failed chain) before adding more geometry.
 - When adding a sketch and its extrude in ONE add_features call, give the sketch an explicit "id" and reference it from the extrude's "sketch" field.
 - When the user says "this" or "the selected …", use the CURRENT SELECTION from context.
 - After every mutation, check the returned statuses. If a feature failed, diagnose from the error code and fix it (e.g. FILLET_TOO_LARGE → smaller radius; OPEN_PROFILE → sketch loops don't close).
