@@ -216,10 +216,11 @@ function SketchToolbar() {
   const cancel = useSketchStore((s) => s.cancel);
 
   const tools: { id: SketchTool; icon: typeof Minus; tip: string }[] = [
-    { id: "select", icon: MousePointer2, tip: "Select" },
+    { id: "select", icon: MousePointer2, tip: "Select — pick entities for constraints" },
     { id: "line", icon: Minus, tip: "Line — click to chain, Esc to end" },
     { id: "rectangle", icon: Square, tip: "Rectangle — two corners" },
     { id: "circle", icon: Circle, tip: "Circle — center, then radius" },
+    { id: "arc", icon: ArcGlyph as unknown as typeof Minus, tip: "Arc — start, end, then bulge" },
   ];
 
   return (
@@ -284,6 +285,25 @@ function SketchToolbar() {
         <X size={16} strokeWidth={2} />
       </button>
     </div>
+  );
+}
+
+/** Arc glyph (quarter arc with endpoints). */
+function ArcGlyph() {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.7"
+      strokeLinecap="round"
+    >
+      <path d="M5 19a14 14 0 0 1 14-14" />
+      <circle cx="5" cy="19" r="1.4" fill="currentColor" stroke="none" />
+      <circle cx="19" cy="5" r="1.4" fill="currentColor" stroke="none" />
+    </svg>
   );
 }
 

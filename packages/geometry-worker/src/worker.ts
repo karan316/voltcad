@@ -39,6 +39,61 @@ const api: GeometryWorkerApi = {
     return getContext()?.faceBasis(faceName) ?? null;
   },
 
+  async describeBodies() {
+    const ctx = getContext();
+    if (!ctx) return [];
+    const oc = await getOC();
+    return ctx.bodies.map((body) => {
+      const scope = new Scope();
+      try {
+        const bbox = scope.add(new oc.Bnd_Box_1());
+        oc.BRepBndLib.Add(body.shape, bbox, false);
+        const cmin = scope.add(bbox.CornerMin());
+        const cmax = scope.add(bbox.CornerMax());
+        const vProps = scope.add(new oc.GProp_GProps_1());
+        oc.BRepGProp.VolumeProperties_1(body.shape, vProps, false, false, false);
+        const com = scope.add(vProps.CentreOfMass());
+        return {
+          name: body.name,
+          volume: vProps.Mass(),
+          centerOfMass: [com.X(), com.Y(), com.Z()] as [number, number, number],
+          boundingBox: {
+            min: [cmin.X(), cmin.Y(), cmin.Z()] as [number, number, number],
+            max: [cmax.X(), cmax.Y(), cmax.Z()] as [number, number, number],
+          },
+          faceCount: body.faces.size(),
+        };
+      } finally {
+        scope.dispose();
+      }
+    });
+  },
+
+  async measureDistance(a: string, b: string) {
+    const ctx = getContext();
+    if (!ctx) return null;
+    const oc = await getOC();
+    const shapeA = ctx.findShape(a);
+    const shapeB = ctx.findShape(b);
+    if (!shapeA || !shapeB) return null;
+    const scope = new Scope();
+    try {
+      const progress = scope.add(new oc.Message_ProgressRange_1());
+      const dist = scope.add(
+        new oc.BRepExtrema_DistShapeShape_2(
+          shapeA,
+          shapeB,
+          oc.Extrema_ExtFlag.Extrema_ExtFlag_MIN as never,
+          oc.Extrema_ExtAlgo.Extrema_ExtAlgo_Grad as never,
+          progress,
+        ),
+      );
+      return dist.IsDone() ? dist.Value() : null;
+    } finally {
+      scope.dispose();
+    }
+  },
+
   async massProperties(): Promise<MassProperties | null> {
     const ctx = getContext();
     if (!ctx || ctx.bodies.length === 0) return null;

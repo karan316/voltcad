@@ -394,6 +394,22 @@ export class SceneManager {
     this.dirty = true;
   }
 
+  /**
+   * Capture the viewport as a JPEG data URL (AI "eyes": lets the copilot
+   * inspect what it built). Renders synchronously first — the drawing buffer
+   * is only valid immediately after a render.
+   */
+  captureImage(maxSize = 768): string {
+    this.renderer.render(this.scene, this.camera);
+    const src = this.renderer.domElement;
+    const scale = Math.min(1, maxSize / Math.max(src.width, src.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(src.width * scale);
+    canvas.height = Math.round(src.height * scale);
+    canvas.getContext("2d")!.drawImage(src, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL("image/jpeg", 0.8);
+  }
+
   /** Pointer NDC → snapped-to-plane UV coordinates (mm). Null if parallel. */
   raycastSketchPlane(ndcX: number, ndcY: number): [number, number] | null {
     if (!this.sketchPlane || !this.sketchBasis) return null;

@@ -23,7 +23,7 @@ export function DimensionInput() {
     }
   }, [hasPending, tool]);
 
-  if (!hasPending || tool === "select") return null;
+  if (!hasPending || tool === "select" || tool === "arc") return null;
 
   const fields =
     tool === "line"

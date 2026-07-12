@@ -27,7 +27,7 @@ import { solveSketch } from "../lib/sketch-solver.ts";
  * makes drawn loops close and profiles extrudable.
  */
 
-export type SketchTool = "select" | "line" | "rectangle" | "circle";
+export type SketchTool = "select" | "line" | "rectangle" | "circle" | "arc";
 
 interface SketchState {
   active: boolean;
@@ -45,6 +45,8 @@ interface SketchState {
   tool: SketchTool;
   /** In-progress tool points (line chain cursor, rect corner, circle center). */
   pending: Point2 | null;
+  /** Second in-progress point (3-point arc: start → end → bulge). */
+  pending2: Point2 | null;
   /** Snapped cursor position for preview rendering. */
   cursor: Point2 | null;
   /** Bumped on any draft change → viewport overlay rebuild. */
@@ -145,6 +147,37 @@ function distanceToEntity(uv: Point2, e: SketchEntity): number {
   }
 }
 
+/**
+ * 3-point arc: circumcircle through start S, end E, and a point M on the arc.
+ * Returns our CCW (startAngle→endAngle) representation, oriented so the arc
+ * passes through M. Null when the points are collinear.
+ */
+export function arcFrom3Points(
+  S: Point2,
+  E: Point2,
+  M: Point2,
+): { center: Point2; radius: number; startAngle: number; endAngle: number } | null {
+  const ax = S[0], ay = S[1], bx = E[0], by = E[1], cx = M[0], cy = M[1];
+  const d = 2 * (ax * (by - cy) + bx * (cy - ay) + cx * (ay - by));
+  if (Math.abs(d) < 1e-9) return null; // collinear
+  const a2 = ax * ax + ay * ay, b2 = bx * bx + by * by, c2 = cx * cx + cy * cy;
+  const ux = (a2 * (by - cy) + b2 * (cy - ay) + c2 * (ay - by)) / d;
+  const uy = (a2 * (cx - bx) + b2 * (ax - cx) + c2 * (bx - ax)) / d;
+  const radius = Math.hypot(ax - ux, ay - uy);
+  const ang = (p: Point2) => ((Math.atan2(p[1] - uy, p[0] - ux) * 180) / Math.PI + 360) % 360;
+  const aS = ang(S), aE = ang(E), aM = ang(M);
+  // CCW span S→E contains M? then start=S; otherwise the arc runs E→S
+  const ccwContains = (from: number, to: number, x: number) => {
+    const span = (to - from + 360) % 360;
+    const rel = (x - from + 360) % 360;
+    return rel <= span;
+  };
+  const r4 = (v: number) => Math.round(v * 10000) / 10000;
+  return ccwContains(aS, aE, aM)
+    ? { center: [r4(ux), r4(uy)], radius: r4(radius), startAngle: r4(aS), endAngle: r4(aE) }
+    : { center: [r4(ux), r4(uy)], radius: r4(radius), startAngle: r4(aE), endAngle: r4(aS) };
+}
+
 /** Snap to nearby existing endpoint first, then to the 1mm grid. */
 function snap(uv: Point2, entities: SketchEntity[], pending: Point2 | null, tol: number): Point2 {
   let best: Point2 | null = null;
@@ -174,6 +207,7 @@ export const useSketchStore = create<SketchState>((set, get) => ({
   solveError: null,
   tool: "line",
   pending: null,
+  pending2: null,
   cursor: null,
   version: 0,
 
@@ -211,7 +245,7 @@ export const useSketchStore = create<SketchState>((set, get) => ({
   },
 
   setTool(tool) {
-    set({ tool, pending: null, version: get().version + 1 });
+    set({ tool, pending: null, pending2: null, version: get().version + 1 });
   },
 
   setPlane(plane) {
@@ -305,11 +339,33 @@ export const useSketchStore = create<SketchState>((set, get) => ({
       set({ entities: [...s.entities, circle], pending: null, version: s.version + 1 });
       return;
     }
+
+    if (s.tool === "arc") {
+      if (!s.pending) {
+        set({ pending: p, version: s.version + 1 });
+        return;
+      }
+      if (!s.pending2) {
+        if (Math.hypot(p[0] - s.pending[0], p[1] - s.pending[1]) < 1e-9) return;
+        set({ pending2: p, version: s.version + 1 });
+        return;
+      }
+      const arc = arcFrom3Points(s.pending, s.pending2, p);
+      if (!arc) return; // collinear — keep waiting for a valid bulge point
+      const entity: SketchEntity = { id: nextEntityId(), type: "arc", ...arc };
+      set({
+        entities: [...s.entities, entity],
+        pending: null,
+        pending2: null,
+        version: s.version + 1,
+      });
+      return;
+    }
   },
 
   escape() {
     const s = get();
-    if (s.pending) set({ pending: null, version: s.version + 1 });
+    if (s.pending || s.pending2) set({ pending: null, pending2: null, version: s.version + 1 });
     else if (s.tool !== "select") set({ tool: "select", version: s.version + 1 });
   },
 
@@ -410,11 +466,11 @@ export const useSketchStore = create<SketchState>((set, get) => ({
         },
       ]);
     }
-    set({ active: false, pending: null, cursor: null, version: get().version + 1 });
+    set({ active: false, pending: null, pending2: null, cursor: null, version: get().version + 1 });
   },
 
   cancel() {
-    set({ active: false, pending: null, cursor: null, version: get().version + 1 });
+    set({ active: false, pending: null, pending2: null, cursor: null, version: get().version + 1 });
   },
 }));
 

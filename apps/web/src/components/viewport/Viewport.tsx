@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import { sampleSketchEntitiesFromBasis, type SketchEntity } from "@voltcad/model-api";
 import { useEditorStore } from "../../state/document-store.ts";
 import { useThemeStore } from "../../state/theme-store.ts";
-import { useSketchStore } from "../../state/sketch-store.ts";
+import { useSketchStore, arcFrom3Points } from "../../state/sketch-store.ts";
 import { SceneManager } from "./scene-manager.ts";
 import { viewportBridge } from "./viewport-bridge.ts";
 
@@ -108,7 +108,7 @@ export function Viewport() {
           );
         }
         if (s.pending && s.cursor) {
-          const previewEntity: SketchEntity | null =
+          let previewEntity: SketchEntity | null =
             s.tool === "line"
               ? { id: "_p", type: "line", start: s.pending, end: s.cursor }
               : s.tool === "rectangle"
@@ -124,6 +124,17 @@ export function Viewport() {
                       ),
                     }
                   : null;
+          if (s.tool === "arc") {
+            // stage 1: straight chord preview; stage 2: live 3-point arc
+            if (s.pending2) {
+              const arc = arcFrom3Points(s.pending, s.pending2, s.cursor);
+              previewEntity = arc
+                ? { id: "_p", type: "arc", ...arc }
+                : { id: "_p", type: "line", start: s.pending, end: s.pending2 };
+            } else {
+              previewEntity = { id: "_p", type: "line", start: s.pending, end: s.cursor };
+            }
+          }
           if (previewEntity) previewParts.push(sampleSketchEntitiesFromBasis(s.basis, [previewEntity]));
         }
         if (previewParts.length > 0) {

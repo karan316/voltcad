@@ -23,6 +23,15 @@ export interface MassProperties {
   centerOfMass: [number, number, number];
 }
 
+/** Per-body summary for AI grounding. */
+export interface BodyDescription {
+  name: string;
+  volume: number;
+  centerOfMass: [number, number, number];
+  boundingBox: { min: [number, number, number]; max: [number, number, number] };
+  faceCount: number;
+}
+
 export interface GeometryWorkerApi {
   /** Load + instantiate the OCCT WASM module. Idempotent. */
   init(): Promise<void>;
@@ -30,6 +39,10 @@ export interface GeometryWorkerApi {
   regenerate(doc: PartDocument): Promise<RegenResult>;
   /** Plane basis of a named planar face (sketch-on-face), or null. */
   getFaceBasis(faceName: string): Promise<PlaneBasis | null>;
+  /** Per-body summaries (bbox, volume, COM) for AI grounding. */
+  describeBodies(): Promise<BodyDescription[]>;
+  /** Minimum distance (mm) between two named entities, or null. */
+  measureDistance(a: string, b: string): Promise<number | null>;
   /** Mass properties of all bodies from the last regeneration. */
   massProperties(): Promise<MassProperties | null>;
   /** Export the last regenerated bodies. */

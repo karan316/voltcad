@@ -140,6 +140,20 @@ export class OcModelContext implements ModelContext {
     return basis;
   }
 
+  /** Locate any named entity's shape (body, face, or edge) for measurement. */
+  findShape(name: string): TopoDS_Shape | null {
+    for (const body of this.bodies) {
+      if (body.name === name) return body.shape;
+      for (const entry of body.faces.entries()) {
+        if (entry.name === name) return entry.face;
+      }
+    }
+    for (const perBody of this.edgeIndex().values()) {
+      for (const rec of perBody) if (rec.name === name) return rec.edge;
+    }
+    return null;
+  }
+
   /** Plane basis of a named planar face, or null. Normal points OUT of the solid. */
   faceBasis(faceName: string): PlaneBasis | null {
     const oc = this.oc;

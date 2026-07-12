@@ -10,6 +10,8 @@ import {
   type PartDocument,
 } from "@voltcad/model-api";
 import { regenSettled, useEditorStore } from "../../state/document-store.ts";
+import { getGeometryWorker } from "@voltcad/geometry-worker";
+import { viewportBridge } from "../../components/viewport/viewport-bridge.ts";
 
 /**
  * AI tool set — the ONLY way the model touches the document.
@@ -256,6 +258,71 @@ export function createCadTools() {
         const s = useEditorStore.getState();
         commitDoc({ ...s.doc, parameters: { ...s.doc.parameters, [name]: value } });
         return regenReport();
+      },
+    }),
+
+    describe_bodies: tool({
+      description:
+        "Get a geometric summary of every body: bounding box (min/max, mm), volume, center of mass, face count. Use to verify sizes/positions after building.",
+      inputSchema: z.object({}),
+      execute: async () => {
+        await regenSettled();
+        return { bodies: await getGeometryWorker().describeBodies() };
+      },
+    }),
+
+    measure_distance: tool({
+      description:
+        "Minimum distance in mm between two named entities (bodies, faces, or edges). Use for verifying spacing, wall thicknesses, clearances.",
+      inputSchema: z.object({
+        a: z.string().describe("First entity name"),
+        b: z.string().describe("Second entity name"),
+      }),
+      execute: async ({ a, b }) => {
+        await regenSettled();
+        const distance = await getGeometryWorker().measureDistance(a, b);
+        return distance === null
+          ? { error: "One or both entities not found" }
+          : { distance };
+      },
+    }),
+
+    capture_viewport: tool({
+      description:
+        "Render the current 3D viewport and LOOK at it. Use after building geometry to visually verify shape/proportions, or when the user references what's on screen. Optionally snap to a standard view first.",
+      inputSchema: z.object({
+        view: z
+          .enum(["current", "iso", "front", "top", "right"])
+          .default("current")
+          .describe("Camera angle for the capture"),
+      }),
+      execute: async ({ view }) => {
+        await regenSettled();
+        const manager = viewportBridge.manager;
+        if (!manager) return { image: null as string | null, view, error: "Viewport not ready" };
+        if (view === "iso") manager.homeView();
+        else if (view === "front") manager.snapToView([0, -1, 0], [0, 0, 1]);
+        else if (view === "top") manager.snapToView([0, 0, 1], [0, 1, 0]);
+        else if (view === "right") manager.snapToView([1, 0, 0], [0, 0, 1]);
+        // let the camera transition settle before grabbing the frame
+        if (view !== "current") await new Promise((r) => setTimeout(r, 700));
+        return { image: manager.captureImage() as string | null, view, error: null as string | null };
+      },
+      // send the actual pixels to the model, not a JSON blob of base64
+      toModelOutput: ({ output }) => {
+        if (!output.image)
+          return { type: "error-text", value: output.error ?? "capture failed" };
+        return {
+          type: "content",
+          value: [
+            { type: "text", text: `Viewport capture (${output.view} view):` },
+            {
+              type: "file",
+              data: { type: "data", data: output.image.split(",")[1]! },
+              mediaType: "image/jpeg",
+            },
+          ],
+        };
       },
     }),
   };

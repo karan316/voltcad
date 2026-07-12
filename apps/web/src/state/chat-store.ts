@@ -30,13 +30,15 @@ export interface ChatMessage {
   id: string;
   role: "user" | "assistant";
   segments: ChatSegment[];
+  /** Attached reference images (data URLs) — user messages only. */
+  images?: string[];
 }
 
 interface ChatState {
   messages: ChatMessage[];
   status: "idle" | "working";
   error: string | null;
-  send(text: string): Promise<void>;
+  send(text: string, images?: string[]): Promise<void>;
   stop(): void;
   clear(): void;
 }
@@ -57,6 +59,8 @@ ENTITY NAMING (persistent, survives edits)
 
 RULES
 - Call get_model_state before modifying an existing model.
+- The user may attach reference IMAGES (photos, drawings, screenshots). Study them for shape, proportions and features; state the key dimensions you inferred before building.
+- After building non-trivial geometry, call capture_viewport to LOOK at the result and verify proportions match the intent (and the reference image, if any). Use describe_bodies / measure_distance to verify exact sizes.
 - SKETCH PROFILES: loops in one sketch must be fully separate or fully nested (nested = hole). Loops that overlap/cross are INVALID and fail. For compound outlines (e.g. a tool silhouette), either draw ONE closed chain of lines/arcs, or build each simple shape as its own sketch+extrude and combine with op "add". Prefer building complex parts from a few simple overlapping SOLIDS (op add/cut) rather than one complex sketch.
 - When a feature fails, downstream features that reference it will cascade-fail — fix the ROOT failure first (or delete the failed chain) before adding more geometry.
 - When adding a sketch and its extrude in ONE add_features call, give the sketch an explicit "id" and reference it from the extrude's "sketch" field.
@@ -104,8 +108,8 @@ export const useChatStore = create<ChatState>((set, get) => {
     status: "idle",
     error: null,
 
-    async send(text: string) {
-      if (get().status === "working" || !text.trim()) return;
+    async send(text: string, images: string[] = []) {
+      if (get().status === "working" || (!text.trim() && images.length === 0)) return;
       const settings = loadAiSettings();
       if (!aiConfigured(settings)) {
         set({ error: "Configure your AI endpoint and API key in settings first." });
@@ -116,12 +120,23 @@ export const useChatStore = create<ChatState>((set, get) => {
         status: "working",
         messages: [
           ...get().messages,
-          { id: nextId(), role: "user", segments: [{ kind: "text", text }] },
+          { id: nextId(), role: "user", segments: [{ kind: "text", text }], images },
           { id: nextId(), role: "assistant", segments: [] },
         ],
       });
 
-      modelHistory.push({ role: "user", content: text });
+      // multimodal user message: reference images ride along as file parts
+      modelHistory.push({
+        role: "user",
+        content: [
+          { type: "text", text: text || "See the attached image(s)." },
+          ...images.map((image) => ({
+            type: "file" as const,
+            data: image,
+            mediaType: "image/jpeg",
+          })),
+        ],
+      });
       abortController = new AbortController();
 
       try {
