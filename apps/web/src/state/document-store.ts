@@ -62,6 +62,8 @@ interface EditorState {
   removeFeature(id: string): void;
   setParameter(name: string, value: string | number): void;
   removeParameter(name: string): void;
+  moveFeature(id: string, toIndex: number): void;
+  setRollback(index: number | null): void;
 
   setHovered(sel: Selection | null): void;
   select(sel: Selection, additive: boolean): void;
@@ -260,6 +262,23 @@ export const useEditorStore = create<EditorState>((set, get) => {
       const doc = get().doc;
       const { [name]: _, ...rest } = doc.parameters;
       commit({ ...doc, parameters: rest });
+    },
+
+    moveFeature(id, toIndex) {
+      const doc = get().doc;
+      const from = doc.features.findIndex((f) => f.id === id);
+      if (from < 0 || toIndex < 0 || toIndex > doc.features.length) return;
+      const features = [...doc.features];
+      const [moved] = features.splice(from, 1);
+      features.splice(toIndex > from ? toIndex - 1 : toIndex, 0, moved!);
+      commit({ ...doc, features });
+    },
+
+    setRollback(index) {
+      const doc = get().doc;
+      const rollback =
+        index === null || index >= doc.features.length ? undefined : Math.max(0, index);
+      commit({ ...doc, rollback });
     },
 
     setHovered(sel) {

@@ -34,6 +34,11 @@ const api: GeometryWorkerApi = {
     return Comlink.transfer(result, sceneTransferables(scene));
   },
 
+  async getFaceBasis(faceName: string) {
+    await getOC();
+    return getContext()?.faceBasis(faceName) ?? null;
+  },
+
   async massProperties(): Promise<MassProperties | null> {
     const ctx = getContext();
     if (!ctx || ctx.bodies.length === 0) return null;

@@ -43,7 +43,14 @@ export function getContext(): OcModelContext | null {
 /** Stable per-feature cache key. Parameters affect every expression → global. */
 function featureKeys(doc: PartDocument): string[] {
   const paramsKey = JSON.stringify(doc.parameters);
-  return doc.features.map((f) => paramsKey + JSON.stringify(f));
+  return doc.features.map(
+    (f, i) =>
+      paramsKey +
+      // rollback state is part of feature identity: crossing the bar changes
+      // whether the feature executes at all
+      (doc.rollback !== undefined && i >= doc.rollback ? "RB|" : "") +
+      JSON.stringify(f),
+  );
 }
 
 function mapsIn(snaps: CtxSnapshot[], extra: FaceNameMap[] = []): Set<FaceNameMap> {

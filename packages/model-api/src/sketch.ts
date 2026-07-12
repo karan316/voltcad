@@ -69,13 +69,21 @@ export const sketchConstraintSchema = z.object({
 export type SketchConstraint = z.infer<typeof sketchConstraintSchema>;
 
 /**
- * Where a sketch lives. v1: the three datum planes with optional offset.
- * A `face` variant (sketch on solid face) is the planned extension point.
+ * Where a sketch lives: a datum plane with optional offset, or a planar face
+ * of an existing body (referenced by persistent entity name — re-resolved
+ * every regeneration, so it survives upstream edits).
  */
-export const sketchPlaneSchema = z.object({
-  kind: z.literal("datum"),
-  plane: z.enum(["XY", "XZ", "YZ"]),
-  /** Offset along the plane normal, expression in mm. */
-  offset: z.union([z.string(), z.number()]).optional(),
-});
+export const sketchPlaneSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("datum"),
+    plane: z.enum(["XY", "XZ", "YZ"]),
+    /** Offset along the plane normal, expression in mm. */
+    offset: z.union([z.string(), z.number()]).optional(),
+  }),
+  z.object({
+    kind: z.literal("face"),
+    /** Persistent name of a planar face, e.g. "ext1/cap:end". */
+    face: z.string(),
+  }),
+]);
 export type SketchPlane = z.infer<typeof sketchPlaneSchema>;

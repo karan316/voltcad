@@ -36,7 +36,9 @@ export function regenerateDocument(
     const featureId = node.id as FeatureId;
     let status: FeatureStatus;
 
-    if (node.suppressed) {
+    if (doc.rollback !== undefined && index >= doc.rollback) {
+      status = { featureId, status: "rolledback" };
+    } else if (node.suppressed) {
       status = { featureId, status: "suppressed" };
     } else {
       const def = registry.get(node.type);

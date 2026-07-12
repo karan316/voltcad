@@ -76,6 +76,8 @@ export class SceneManager {
   private sketchBasis: PlaneBasis | null = null;
   /** Camera pose saved on sketch entry, restored on exit. */
   private savedCamera: { pos: THREE.Vector3; target: THREE.Vector3 } | null = null;
+  /** Fired after each rendered frame with the camera quaternion (view cube). */
+  onCameraChange: ((q: THREE.Quaternion) => void) | null = null;
 
   private draftMaterial = new THREE.LineBasicMaterial({ color: THEMES.dark.selected });
   private previewMaterial = new THREE.LineBasicMaterial({
@@ -245,6 +247,10 @@ export class SceneManager {
    */
   pick(ndcX: number, ndcY: number): Selection | null {
     this.raycaster.setFromCamera(new THREE.Vector2(ndcX, ndcY), this.camera);
+    // magnetic edges: keep the hit radius constant in SCREEN space (~6px)
+    // regardless of zoom — fixed world-space thresholds feel wrong on
+    // trackpads (too grabby zoomed out, impossible zoomed in)
+    this.raycaster.params.Line.threshold = this.worldPerPixel() * 6;
 
     let bestFace: { name: string; dist: number } | null = null;
     let bestEdge: { name: string; dist: number } | null = null;
@@ -266,8 +272,8 @@ export class SceneManager {
       }
     }
 
-    // prefer the edge if it's essentially at the surface we hit
-    if (bestEdge && (!bestFace || bestEdge.dist <= bestFace.dist + 1.5))
+    // prefer the edge if it's essentially at the surface we hit (~4px depth)
+    if (bestEdge && (!bestFace || bestEdge.dist <= bestFace.dist + this.worldPerPixel() * 4))
       return { name: bestEdge.name, kind: "edge" };
     if (bestFace) return { name: bestFace.name, kind: "face" };
     return null;
@@ -378,6 +384,16 @@ export class SceneManager {
     this.dirty = true;
   }
 
+  /** Snap the camera to a named direction, keeping target and distance. */
+  snapToView(dir: [number, number, number], up: [number, number, number]): void {
+    const target = this.controls.getTarget(new THREE.Vector3());
+    const dist = this.controls.distance;
+    const eye = target.clone().addScaledVector(new THREE.Vector3(...dir).normalize(), dist);
+    this.camera.up.set(...up);
+    void this.controls.setLookAt(eye.x, eye.y, eye.z, target.x, target.y, target.z, true);
+    this.dirty = true;
+  }
+
   /** Pointer NDC → snapped-to-plane UV coordinates (mm). Null if parallel. */
   raycastSketchPlane(ndcX: number, ndcY: number): [number, number] | null {
     if (!this.sketchPlane || !this.sketchBasis) return null;
@@ -435,6 +451,7 @@ export class SceneManager {
     if (updated || this.dirty) {
       this.dirty = false;
       this.renderer.render(this.scene, this.camera);
+      this.onCameraChange?.(this.camera.quaternion);
     }
   };
 

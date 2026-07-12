@@ -14,7 +14,6 @@ import {
   type PlaneBasis,
   type Point2,
   type SketchEntity,
-  type SketchPlane,
 } from "@voltcad/model-api";
 import { Scope } from "./scope.ts";
 
@@ -215,16 +214,14 @@ function buildEdge(oc: OC, basis: PlaneBasis, s: Segment, scope: Scope): TopoDS_
 }
 
 /**
- * Build profile faces from sketch entities.
+ * Build profile faces from sketch entities on an arbitrary plane basis.
  * Returns one face per outer loop, with holes applied (one nesting level).
  */
 export function buildProfiles(
   oc: OC,
-  plane: SketchPlane,
-  offset: number,
+  basis: PlaneBasis,
   entities: SketchEntity[],
 ): BuiltProfile[] {
-  const basis = planeBasis(plane, offset);
   const loops = findLoops(toSegments(entities));
   if (loops.length === 0) return [];
 

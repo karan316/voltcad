@@ -1,9 +1,10 @@
 import { useEffect, useRef } from "react";
-import { sampleSketchEntities, type SketchEntity } from "@voltcad/model-api";
+import { sampleSketchEntitiesFromBasis, type SketchEntity } from "@voltcad/model-api";
 import { useEditorStore } from "../../state/document-store.ts";
 import { useThemeStore } from "../../state/theme-store.ts";
 import { useSketchStore } from "../../state/sketch-store.ts";
 import { SceneManager } from "./scene-manager.ts";
+import { viewportBridge } from "./viewport-bridge.ts";
 
 /**
  * React shell around the imperative SceneManager.
@@ -21,6 +22,7 @@ export function Viewport() {
     if (!el) return;
     const manager = new SceneManager(el);
     managerRef.current = manager;
+    viewportBridge.manager = manager;
     manager.setTheme(useThemeStore.getState().theme);
     let cancelled = false;
 
@@ -42,6 +44,7 @@ export function Viewport() {
       observer.disconnect();
       manager.dispose();
       managerRef.current = null;
+      if (viewportBridge.manager === manager) viewportBridge.manager = null;
     };
   }, []);
 
@@ -91,7 +94,7 @@ export function Viewport() {
         if (s.basis !== prev.basis && s.active) manager.enterSketchMode(s.basis);
 
         // committed entities in draft color
-        const draft = sampleSketchEntities(s.plane, 0, s.entities);
+        const draft = sampleSketchEntitiesFromBasis(s.basis, s.entities);
         // live preview from pending point → cursor
         let preview: Float32Array | null = null;
         if (s.pending && s.cursor) {
@@ -111,7 +114,7 @@ export function Viewport() {
                       ),
                     }
                   : null;
-          if (previewEntity) preview = sampleSketchEntities(s.plane, 0, [previewEntity]);
+          if (previewEntity) preview = sampleSketchEntitiesFromBasis(s.basis, [previewEntity]);
         }
         const cursor3 = s.cursor
           ? ([

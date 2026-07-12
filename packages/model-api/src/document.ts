@@ -37,6 +37,8 @@ export const partDocumentSchema = z.object({
   /** Named user parameters; values are expressions ("wall_t * 2"). */
   parameters: z.record(z.string(), z.union([z.string(), z.number()])),
   features: z.array(featureNodeSchema),
+  /** Features at index >= rollback are not regenerated (rollback bar). */
+  rollback: z.number().int().min(0).optional(),
 });
 
 export interface PartDocument {
@@ -44,6 +46,7 @@ export interface PartDocument {
   name: string;
   parameters: Record<string, Expression>;
   features: FeatureNode[];
+  rollback?: number;
 }
 
 export function createEmptyDocument(name = "Untitled"): PartDocument {
@@ -53,7 +56,7 @@ export function createEmptyDocument(name = "Untitled"): PartDocument {
 /** Per-feature outcome of a regeneration pass. */
 export interface FeatureStatus {
   featureId: FeatureId;
-  status: "ok" | "error" | "skipped" | "suppressed";
+  status: "ok" | "error" | "skipped" | "suppressed" | "rolledback";
   error?: { code: string; message: string; entities: string[] };
   /** Wall-clock ms spent in the kernel — surfaced in the UI for perf hygiene. */
   elapsedMs?: number;

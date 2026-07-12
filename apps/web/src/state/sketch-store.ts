@@ -8,6 +8,7 @@ import {
   type SketchEntity,
   type SketchPlane,
 } from "@voltcad/model-api";
+import { getGeometryWorker } from "@voltcad/geometry-worker";
 import { useEditorStore } from "./document-store.ts";
 
 /**
@@ -41,6 +42,8 @@ interface SketchState {
   version: number;
 
   begin(plane: SketchPlane, editFeatureId?: string): void;
+  /** Start a sketch on a planar face (basis fetched from the kernel). */
+  beginOnFace(faceName: string): Promise<boolean>;
   setTool(tool: SketchTool): void;
   setPlane(plane: SketchPlane): void;
   /** Pointer moved; uv already on the plane, tol = snap radius in mm. */
@@ -50,12 +53,40 @@ interface SketchState {
   /** Escape: end the current chain, or drop to select tool. */
   escape(): void;
   removeLast(): void;
+  /**
+   * Complete the pending tool action with typed exact dimensions instead of
+   * a click: line → [length], rectangle → [width, height], circle → [radius].
+   * Direction/quadrant comes from the current cursor position.
+   */
+  applyDimension(values: number[]): void;
   finish(): void;
   cancel(): void;
 }
 
 let entityCounter = 0;
 const nextEntityId = () => `e${Date.now().toString(36).slice(-3)}${(entityCounter++).toString(36)}`;
+
+/** Shared activation for datum + face begins. */
+function activate(
+  set: (partial: Partial<SketchState>) => void,
+  get: () => SketchState,
+  plane: SketchPlane,
+  basis: PlaneBasis,
+  entities: SketchEntity[],
+  editingFeatureId: string | null,
+): void {
+  set({
+    active: true,
+    editingFeatureId,
+    plane,
+    basis,
+    entities,
+    tool: "line",
+    pending: null,
+    cursor: null,
+    version: get().version + 1,
+  });
+}
 
 /** Snap to nearby existing endpoint first, then to the 1mm grid. */
 function snap(uv: Point2, entities: SketchEntity[], pending: Point2 | null, tol: number): Point2 {
@@ -93,17 +124,23 @@ export const useSketchStore = create<SketchState>((set, get) => ({
       entities = structuredClone(params?.entities ?? []);
       plane = params?.plane ?? plane;
     }
-    set({
-      active: true,
-      editingFeatureId: editFeatureId ?? null,
-      plane,
-      basis: planeBasis(plane, 0),
-      entities,
-      tool: "line",
-      pending: null,
-      cursor: null,
-      version: get().version + 1,
-    });
+    if (plane.kind === "face") {
+      // face plane basis lives in the kernel — fetch async then activate
+      void getGeometryWorker()
+        .getFaceBasis(plane.face)
+        .then((basis) => {
+          if (basis) activate(set, get, plane, basis, entities, editFeatureId ?? null);
+        });
+      return;
+    }
+    activate(set, get, plane, planeBasis(plane, 0), entities, editFeatureId ?? null);
+  },
+
+  async beginOnFace(faceName) {
+    const basis = await getGeometryWorker().getFaceBasis(faceName);
+    if (!basis) return false; // not planar — caller shows feedback
+    activate(set, get, { kind: "face", face: faceName }, basis, [], null);
+    return true;
   },
 
   setTool(tool) {
@@ -112,7 +149,7 @@ export const useSketchStore = create<SketchState>((set, get) => ({
 
   setPlane(plane) {
     // only before anything is drawn — reorienting existing geometry is a lie
-    if (get().entities.length > 0) return;
+    if (get().entities.length > 0 || plane.kind === "face") return;
     set({ plane, basis: planeBasis(plane, 0), version: get().version + 1 });
   },
 
@@ -185,6 +222,48 @@ export const useSketchStore = create<SketchState>((set, get) => ({
     const s = get();
     if (s.pending) set({ pending: null, version: s.version + 1 });
     else if (s.tool !== "select") set({ tool: "select", version: s.version + 1 });
+  },
+
+  applyDimension(values) {
+    const s = get();
+    if (!s.pending) return;
+    const [a, b] = values;
+    if (s.tool === "line" && a && a > 0) {
+      // direction from cursor; falls back to +X
+      let dx = 1, dy = 0;
+      if (s.cursor) {
+        const len = Math.hypot(s.cursor[0] - s.pending[0], s.cursor[1] - s.pending[1]);
+        if (len > 1e-6) {
+          dx = (s.cursor[0] - s.pending[0]) / len;
+          dy = (s.cursor[1] - s.pending[1]) / len;
+        }
+      }
+      const end: Point2 = [
+        Math.round((s.pending[0] + dx * a) * 1000) / 1000,
+        Math.round((s.pending[1] + dy * a) * 1000) / 1000,
+      ];
+      const line: SketchEntity = { id: nextEntityId(), type: "line", start: s.pending, end };
+      set({ entities: [...s.entities, line], pending: end, version: s.version + 1 });
+    } else if (s.tool === "rectangle" && a && b && a > 0 && b > 0) {
+      // quadrant from cursor; defaults to +x/+y
+      const sx = s.cursor && s.cursor[0] < s.pending[0] ? -1 : 1;
+      const sy = s.cursor && s.cursor[1] < s.pending[1] ? -1 : 1;
+      const rect: SketchEntity = {
+        id: nextEntityId(),
+        type: "rectangle",
+        corner1: s.pending,
+        corner2: [s.pending[0] + sx * a, s.pending[1] + sy * b],
+      };
+      set({ entities: [...s.entities, rect], pending: null, version: s.version + 1 });
+    } else if (s.tool === "circle" && a && a > 0) {
+      const circle: SketchEntity = {
+        id: nextEntityId(),
+        type: "circle",
+        center: s.pending,
+        radius: a,
+      };
+      set({ entities: [...s.entities, circle], pending: null, version: s.version + 1 });
+    }
   },
 
   removeLast() {

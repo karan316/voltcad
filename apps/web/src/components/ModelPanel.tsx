@@ -5,6 +5,7 @@ import {
   CircleAlert,
   Eye,
   EyeOff,
+  GripHorizontal,
   PenLine,
   Plus,
   RotateCw,
@@ -42,11 +43,68 @@ import {
  */
 export function ModelPanel() {
   const features = useEditorStore((s) => s.doc.features);
+  const rollback = useEditorStore((s) => s.doc.rollback);
   const statuses = useEditorStore((s) => s.statuses);
   const activeId = useEditorStore((s) => s.activeFeatureId);
   const setActive = useEditorStore((s) => s.setActiveFeature);
   const removeFeature = useEditorStore((s) => s.removeFeature);
+  const moveFeature = useEditorStore((s) => s.moveFeature);
+  const setRollback = useEditorStore((s) => s.setRollback);
   const [pendingDelete, setPendingDelete] = useState<FeatureNode | null>(null);
+  /** id of feature being dragged, or "__rollback__" for the bar. */
+  const [dragging, setDragging] = useState<string | null>(null);
+  const [dropIndex, setDropIndex] = useState<number | null>(null);
+
+  const handleDrop = (index: number) => {
+    if (dragging === "__rollback__") setRollback(index >= features.length ? null : index);
+    else if (dragging) moveFeature(dragging, index);
+    setDragging(null);
+    setDropIndex(null);
+  };
+
+  /** Gap between rows: drop target for reorder + the rollback bar itself. */
+  const Gap = ({ index }: { index: number }) => {
+    const isBarHere = (rollback ?? features.length) === index && features.length > 0;
+    return (
+      <div
+        className="relative mx-2"
+        onDragOver={(e) => {
+          if (!dragging) return;
+          e.preventDefault();
+          setDropIndex(index);
+        }}
+        onDrop={(e) => {
+          e.preventDefault();
+          handleDrop(index);
+        }}
+      >
+        <div
+          className="h-1 rounded-full transition-colors"
+          style={{ background: dropIndex === index && dragging ? "var(--label)" : "transparent" }}
+        />
+        {isBarHere && (
+          <div
+            draggable
+            className="group/bar flex cursor-grab items-center gap-2 py-0.5 active:cursor-grabbing"
+            data-tip="Rollback bar — drag to replay history up to a point"
+            onDragStart={(e) => {
+              e.dataTransfer.effectAllowed = "move";
+              setDragging("__rollback__");
+            }}
+            onDragEnd={() => {
+              setDragging(null);
+              setDropIndex(null);
+            }}
+            onDoubleClick={() => setRollback(null)}
+          >
+            <div className="h-[3px] flex-1 rounded-full" style={{ background: "var(--status)" }} />
+            <GripHorizontal size={11} style={{ color: "var(--status)" }} />
+            <div className="h-[3px] flex-1 rounded-full" style={{ background: "var(--status)" }} />
+          </div>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div className="chat-scroll flex-1 overflow-y-auto">
@@ -56,17 +114,37 @@ export function ModelPanel() {
           Empty part — insert a primitive from the toolbar or ask the copilot.
         </p>
       )}
-      {features.map((f) => (
-        <FeatureRow
-          key={f.id}
-          feature={f}
-          status={statuses[f.id]?.status}
-          error={statuses[f.id]?.error?.message}
-          expanded={activeId === f.id}
-          onToggle={() => setActive(activeId === f.id ? null : f.id)}
-          onDelete={() => setPendingDelete(f)}
-        />
+      {features.map((f, i) => (
+        <div key={f.id}>
+          <Gap index={i} />
+          <div
+            draggable
+            onDragStart={(e) => {
+              e.dataTransfer.effectAllowed = "move";
+              setDragging(f.id);
+            }}
+            onDragEnd={() => {
+              setDragging(null);
+              setDropIndex(null);
+            }}
+            style={
+              rollback !== undefined && i >= rollback
+                ? { opacity: 0.35, filter: "grayscale(0.6)" }
+                : undefined
+            }
+          >
+            <FeatureRow
+              feature={f}
+              status={statuses[f.id]?.status}
+              error={statuses[f.id]?.error?.message}
+              expanded={activeId === f.id}
+              onToggle={() => setActive(activeId === f.id ? null : f.id)}
+              onDelete={() => setPendingDelete(f)}
+            />
+          </div>
+        </div>
       ))}
+      {features.length > 0 && <Gap index={features.length} />}
       <ParametersSection />
 
       <AlertDialog open={pendingDelete !== null} onOpenChange={(open) => !open && setPendingDelete(null)}>
@@ -248,7 +326,10 @@ function FeatureEditor({ feature: f }: { feature: FeatureNode }) {
       {f.type === "sketch" && (
         <p className="mt-2 text-[11px] leading-relaxed" style={{ color: "var(--text-muted)" }}>
           {(params.entities as unknown[])?.length ?? 0} entities on{" "}
-          {(params.plane as { plane?: string })?.plane}
+          {(() => {
+            const plane = params.plane as { kind?: string; plane?: string; face?: string };
+            return plane?.kind === "face" ? `face ${plane.face}` : plane?.plane;
+          })()}
         </p>
       )}
     </div>

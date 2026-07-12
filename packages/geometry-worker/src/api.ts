@@ -1,4 +1,4 @@
-import type { FeatureStatus, PartDocument, SceneUpdate } from "@voltcad/model-api";
+import type { FeatureStatus, PartDocument, PlaneBasis, SceneUpdate } from "@voltcad/model-api";
 
 /**
  * RPC contract between the main thread and the geometry worker.
@@ -28,6 +28,8 @@ export interface GeometryWorkerApi {
   init(): Promise<void>;
   /** Full history regeneration. Returns tessellated scene (transferred). */
   regenerate(doc: PartDocument): Promise<RegenResult>;
+  /** Plane basis of a named planar face (sketch-on-face), or null. */
+  getFaceBasis(faceName: string): Promise<PlaneBasis | null>;
   /** Mass properties of all bodies from the last regeneration. */
   massProperties(): Promise<MassProperties | null>;
   /** Export the last regenerated bodies. */

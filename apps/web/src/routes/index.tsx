@@ -9,6 +9,8 @@ import { Toolbar } from '../components/Toolbar.tsx'
 import { StatusBar } from '../components/StatusBar.tsx'
 import { SettingsDialog } from '../components/SettingsDialog.tsx'
 import { ViewportOverlays } from '../components/ViewportOverlays.tsx'
+import { DimensionInput } from '../components/DimensionInput.tsx'
+import { ViewCube } from '../components/ViewCube.tsx'
 
 export const Route = createFileRoute('/')({
   // the editor is fully client-side (WebGPU, workers, OPFS)
@@ -69,9 +71,13 @@ function Editor() {
             <TopBar onOpenSettings={() => setSettingsOpen(true)} />
           </div>
           <div className="mt-3 flex justify-center">
-            <div className="pointer-events-auto">
+            <div className="pointer-events-auto flex flex-col items-center">
               <Toolbar />
+              <DimensionInput />
             </div>
+          </div>
+          <div className="mt-1 flex justify-end">
+            <ViewCube />
           </div>
           <div className="flex-1" />
           <div className="pointer-events-auto">

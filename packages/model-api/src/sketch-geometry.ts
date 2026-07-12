@@ -15,6 +15,8 @@ export interface PlaneBasis {
 }
 
 export function planeBasis(plane: SketchPlane, offset: number): PlaneBasis {
+  if (plane.kind === "face")
+    throw new Error("Face-plane basis comes from the kernel (getFaceBasis), not planeBasis()");
   // Right-handed: normal = u × v for each datum plane.
   const bases: Record<string, PlaneBasis> = {
     XY: { origin: [0, 0, 0], u: [1, 0, 0], v: [0, 1, 0], normal: [0, 0, 1] },
@@ -90,7 +92,14 @@ export function sampleSketchEntities(
   offset: number,
   entities: SketchEntity[],
 ): Float32Array {
-  const basis = planeBasis(plane, offset);
+  return sampleSketchEntitiesFromBasis(planeBasis(plane, offset), entities);
+}
+
+/** Same sampler, but from an explicit basis (face planes, sketcher draft). */
+export function sampleSketchEntitiesFromBasis(
+  basis: PlaneBasis,
+  entities: SketchEntity[],
+): Float32Array {
   const out: number[] = [];
   const pushSeg = (a: Point2, b: Point2) => {
     out.push(...to3D(basis, a), ...to3D(basis, b));

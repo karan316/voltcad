@@ -9,12 +9,16 @@ import type {
 import {
   RegenError,
   evaluateExpression,
+  planeBasis,
+  sampleSketchEntitiesFromBasis,
+  to3D,
   type EntityHit,
   type EntityQuery,
   type Expression,
   type ExtrudeOptions,
   type FeatureId,
   type ModelContext,
+  type PlaneBasis,
   type RevolveOptions,
   type ShapeHandle,
   type SketchDisplay,
@@ -22,14 +26,13 @@ import {
   type SketchPlane,
 } from "@voltcad/model-api";
 import { FaceNameMap, edgeNameFromFaces, listToArray, propagateFaceNames, type NamedBody } from "./naming.ts";
-import { buildProfiles, sampleSketchEntities, type BuiltProfile } from "./sketch-builder.ts";
+import { buildProfiles, type BuiltProfile } from "./sketch-builder.ts";
 import { Scope } from "./scope.ts";
 
 type OC = OpenCascadeInstance;
 
 interface ProfileRecord extends BuiltProfile {
-  normal: [number, number, number];
-  planeOrigin: [number, number, number];
+  basis: PlaneBasis;
 }
 
 /**
@@ -109,20 +112,69 @@ export class OcModelContext implements ModelContext {
   // ------------------------------------------------------------------- sketch
 
   buildProfile(owner: FeatureId, plane: SketchPlane, entities: SketchEntity[]): ShapeHandle[] {
-    const offset = plane.offset !== undefined ? this.evaluate(plane.offset) : 0;
-    const built = buildProfiles(this.oc, plane, offset, entities);
-    const basisNormal = builtNormal(plane);
-    const records: ProfileRecord[] = built.map((b) => ({
-      ...b,
-      normal: basisNormal,
-      planeOrigin: [basisNormal[0] * offset, basisNormal[1] * offset, basisNormal[2] * offset],
-    }));
+    const basis = this.basisForPlane(plane);
+    const built = buildProfiles(this.oc, basis, entities);
+    const records: ProfileRecord[] = built.map((b) => ({ ...b, basis }));
     this.profiles.set(owner, records);
     this.sketchDisplays.push({
       featureId: owner,
-      positions: sampleSketchEntities(plane, offset, entities),
+      positions: sampleSketchEntitiesFromBasis(basis, entities),
     });
     return records.map((r) => (this.handles.push(r) - 1) as ShapeHandle);
+  }
+
+  /** Resolve a sketch plane (datum or planar face) to a world basis. */
+  basisForPlane(plane: SketchPlane): PlaneBasis {
+    if (plane.kind === "datum") {
+      const offset = plane.offset !== undefined ? this.evaluate(plane.offset) : 0;
+      return planeBasis(plane, offset);
+    }
+    const basis = this.faceBasis(plane.face);
+    if (!basis)
+      throw new RegenError(
+        "QUERY_NO_MATCH",
+        `Sketch plane face "${plane.face}" not found or not planar`,
+        [plane.face],
+      );
+    return basis;
+  }
+
+  /** Plane basis of a named planar face, or null. Normal points OUT of the solid. */
+  faceBasis(faceName: string): PlaneBasis | null {
+    const oc = this.oc;
+    for (const body of this.bodies) {
+      for (const { face, name } of body.faces.entries()) {
+        if (name !== faceName) continue;
+        const scope = new Scope();
+        try {
+          const typedFace = oc.TopoDS.Face_1(face);
+          const surf = scope.add(new oc.BRepAdaptor_Surface_2(typedFace, true));
+          if (surf.GetType() !== oc.GeomAbs_SurfaceType.GeomAbs_Plane) return null;
+          const pln = scope.add(surf.Plane());
+          const loc = scope.add(pln.Location());
+          const xAxis = scope.add(pln.XAxis());
+          const yAxis = scope.add(pln.YAxis());
+          const axis = scope.add(pln.Axis());
+          const xd = scope.add(xAxis.Direction());
+          const yd = scope.add(yAxis.Direction());
+          const nd = scope.add(axis.Direction());
+          // orient the normal outward: REVERSED faces flip the surface normal;
+          // flip v too so the basis stays right-handed (n = u × v)
+          const reversed =
+            face.Orientation_1() === oc.TopAbs_Orientation.TopAbs_REVERSED;
+          const sign = reversed ? -1 : 1;
+          return {
+            origin: [loc.X(), loc.Y(), loc.Z()],
+            u: [xd.X(), xd.Y(), xd.Z()],
+            v: [sign * yd.X(), sign * yd.Y(), sign * yd.Z()],
+            normal: [sign * nd.X(), sign * nd.Y(), sign * nd.Z()],
+          };
+        } finally {
+          scope.dispose();
+        }
+      }
+    }
+    return null;
   }
 
   profilesOf(sketch: FeatureId): ShapeHandle[] {
@@ -239,7 +291,7 @@ export class OcModelContext implements ModelContext {
       if (!record) throw new RegenError("KERNEL_FAILURE", "Invalid profile handle");
       const scope = new Scope();
       try {
-        const [nx, ny, nz] = record.normal;
+        const [nx, ny, nz] = record.basis.normal;
         const d = options.distance;
         let baseFace: TopoDS_Face = record.face;
         let edgeTags = record.edgeTags;
@@ -292,14 +344,8 @@ export class OcModelContext implements ModelContext {
       if (!record) throw new RegenError("KERNEL_FAILURE", "Invalid profile handle");
       const scope = new Scope();
       try {
-        // axis: sketch-plane coordinates → world coordinates
-        const b = { normal: record.normal, origin: record.planeOrigin };
-        const basisFor = axisBasis(b.normal);
-        const p3 = (p: [number, number]): [number, number, number] => [
-          b.origin[0] + basisFor.u[0] * p[0] + basisFor.v[0] * p[1],
-          b.origin[1] + basisFor.u[1] * p[0] + basisFor.v[1] * p[1],
-          b.origin[2] + basisFor.u[2] * p[0] + basisFor.v[2] * p[1],
-        ];
+        // axis: sketch-plane coordinates → world coordinates via the basis
+        const p3 = (p: [number, number]) => to3D(record.basis, p);
         const origin = p3(options.axisPoint);
         const tip = p3([
           options.axisPoint[0] + options.axisDir[0],
@@ -538,18 +584,4 @@ function nameShapeFaces(
     i++;
   }
   scope.dispose();
-}
-
-function builtNormal(plane: SketchPlane): [number, number, number] {
-  return plane.plane === "XY" ? [0, 0, 1] : plane.plane === "XZ" ? [0, -1, 0] : [1, 0, 0];
-}
-
-function axisBasis(normal: [number, number, number]): {
-  u: [number, number, number];
-  v: [number, number, number];
-} {
-  // matches planeBasis() in sketch-builder — keep in sync
-  if (normal[2] === 1) return { u: [1, 0, 0], v: [0, 1, 0] };
-  if (normal[1] === -1) return { u: [1, 0, 0], v: [0, 0, 1] };
-  return { u: [0, 1, 0], v: [0, 0, 1] };
 }

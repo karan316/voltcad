@@ -42,6 +42,19 @@ function ModelToolbar() {
   const activeFeatureId = useEditorStore((s) => s.activeFeatureId);
   const beginSketch = useSketchStore((s) => s.begin);
   const selectedEdges = selection.filter((s) => s.kind === "edge");
+  const selectedFaces = selection.filter((s) => s.kind === "face");
+
+  const startSketch = async () => {
+    // exactly one face selected → sketch on it; otherwise datum XY
+    if (selectedFaces.length === 1) {
+      const ok = await useSketchStore.getState().beginOnFace(selectedFaces[0]!.name);
+      if (ok) {
+        useEditorStore.getState().clearSelection();
+        return;
+      }
+    }
+    beginSketch({ kind: "datum", plane: "XY" });
+  };
 
   // extrude targets the inspected sketch, falling back to the last sketch
   const targetSketch =
@@ -136,8 +149,12 @@ function ModelToolbar() {
       <div className="tool-sep" />
       <button
         className="tool-btn"
-        data-tip="New sketch"
-        onClick={() => beginSketch({ kind: "datum", plane: "XY" })}
+        data-tip={
+          selectedFaces.length === 1
+            ? "Sketch on selected face"
+            : "New sketch (select a face first to sketch on it)"
+        }
+        onClick={() => void startSketch()}
       >
         <PenLine size={16} strokeWidth={1.7} />
       </button>
@@ -221,7 +238,7 @@ function SketchToolbar() {
         </button>
       ))}
       <div className="tool-sep" />
-      {entityCount === 0 &&
+      {entityCount === 0 && plane.kind === "datum" &&
         (["XY", "XZ", "YZ"] as const).map((p) => (
           <button
             key={p}
@@ -233,6 +250,11 @@ function SketchToolbar() {
             {p}
           </button>
         ))}
+      {plane.kind === "face" && (
+        <span className="micro-label px-1.5" data-tip={plane.face}>
+          on face
+        </span>
+      )}
       {entityCount > 0 && <span className="micro-label px-1.5">{entityCount} entities</span>}
       <div className="tool-sep" />
       <button
