@@ -215,9 +215,9 @@ function FeatureRow(props: {
   const Chevron = props.expanded ? ChevronDown : ChevronRight;
 
   return (
-    <div className="mx-2 mb-0.5 rounded-lg" style={props.expanded ? { background: "rgb(127 127 127 / 0.07)" } : undefined}>
+    <div className="mx-2 mb-0.5 rounded-[5px]" style={props.expanded ? { background: "rgb(127 127 127 / 0.07)" } : undefined}>
       <div
-        className={`group flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] transition-colors hover:bg-[rgb(127_127_127/0.08)] ${f.suppressed ? "opacity-40" : ""}`}
+        className={`group flex cursor-pointer items-center gap-2 rounded-[5px] px-2 py-1.5 text-[13px] transition-colors hover:bg-[rgb(127_127_127/0.08)] ${f.suppressed ? "opacity-40" : ""}`}
         onClick={props.onToggle}
         onDoubleClick={() => {
           if (f.type === "sketch")
@@ -229,7 +229,8 @@ function FeatureRow(props: {
         <Icon size={14} strokeWidth={1.7} style={{ color: "var(--text-secondary)" }} />
         <span className="flex-1 truncate">{f.name}</span>
         {props.status === "error" && <CircleAlert size={13} style={{ color: "var(--err)" }} />}
-        <span className="hidden items-center gap-0.5 group-hover:flex">
+        {/* opacity toggle (not display) so hover never shifts layout */}
+        <span className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
           {f.type === "sketch" && (
             <button
               className="icon-btn"
