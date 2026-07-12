@@ -1,4 +1,5 @@
 import { useEditorStore } from "../state/document-store.ts";
+import { prettyEntityName } from "../lib/pretty.ts";
 
 /** Bottom status strip: hover/selection readout, mass properties, perf. */
 export function StatusBar() {
@@ -7,6 +8,10 @@ export function StatusBar() {
   const massProps = useEditorStore((s) => s.massProps);
   const regenMs = useEditorStore((s) => s.regenMs);
   const kernelError = useEditorStore((s) => s.kernelError);
+  const doc = useEditorStore((s) => s.doc);
+
+  const selectedFacesOnly =
+    selection.length > 0 && selection.every((x) => x.kind === "face");
 
   return (
     <div className="glass-panel flex h-8 items-center gap-5 px-4 font-mono text-[10px]" style={{ color: "var(--text-muted)" }}>
@@ -15,8 +20,10 @@ export function StatusBar() {
           <span style={{ color: "var(--err)" }}>{kernelError}</span>
         ) : hovered ? (
           <span style={{ color: "var(--text-secondary)" }}>
-            {hovered.kind} · {hovered.name}
+            {hovered.kind} · {prettyEntityName(hovered.name, hovered.kind, doc)}
           </span>
+        ) : selectedFacesOnly ? (
+          `${selection.length} face${selection.length > 1 ? "s" : ""} selected — tip: fillet/chamfer need edges`
         ) : selection.length > 0 ? (
           `${selection.length} selected`
         ) : (

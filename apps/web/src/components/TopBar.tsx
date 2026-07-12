@@ -94,11 +94,9 @@ export function TopBar(props: { onOpenSettings: () => void }) {
       >
         <Download size={15} strokeWidth={1.8} />
       </button>
-      <span className="micro-label -ml-1 mr-1 hidden lg:inline">step</span>
       <button className="tool-btn" data-tip="Export STL" onClick={() => void exportModel("stl")}>
         <Download size={15} strokeWidth={1.8} />
       </button>
-      <span className="micro-label -ml-1 mr-1 hidden lg:inline">stl</span>
       <div className="tool-sep" />
       <button
         className="tool-btn"

@@ -3,6 +3,7 @@ import {
   Check,
   Circle,
   Cylinder,
+  Home,
   Maximize,
   Minus,
   MousePointer2,
@@ -173,6 +174,13 @@ function ModelToolbar() {
         <Slice size={16} strokeWidth={1.7} />
       </button>
       <div className="tool-sep" />
+      <button
+        className="tool-btn"
+        data-tip="Home view"
+        onClick={() => useEditorStore.getState().requestHome()}
+      >
+        <Home size={16} strokeWidth={1.7} />
+      </button>
       <button className="tool-btn" data-tip="Fit view" onClick={requestFit}>
         <Maximize size={16} strokeWidth={1.7} />
       </button>

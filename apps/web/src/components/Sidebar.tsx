@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { MessageSquare, Layers, Zap } from "lucide-react";
 import { ChatPanel } from "./ChatPanel.tsx";
 import { ModelPanel } from "./ModelPanel.tsx";
@@ -6,7 +5,8 @@ import { useEditorStore } from "../state/document-store.ts";
 
 /** Left sidebar: floating glass panel with brand header + CHAT / MODEL tabs. */
 export function Sidebar(props: { onOpenSettings: () => void }) {
-  const [tab, setTab] = useState<"chat" | "model">("chat");
+  const tab = useEditorStore((s) => s.sidebarTab);
+  const setTab = useEditorStore((s) => s.setSidebarTab);
   const featureCount = useEditorStore((s) => s.doc.features.length);
   const paramCount = useEditorStore((s) => s.doc.parameters ? Object.keys(s.doc.parameters).length : 0);
   const hasErrors = useEditorStore((s) =>

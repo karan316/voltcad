@@ -74,6 +74,8 @@ export class SceneManager {
   private hemi!: THREE.HemisphereLight;
   private sketchPlane: THREE.Plane | null = null;
   private sketchBasis: PlaneBasis | null = null;
+  /** Camera pose saved on sketch entry, restored on exit. */
+  private savedCamera: { pos: THREE.Vector3; target: THREE.Vector3 } | null = null;
 
   private draftMaterial = new THREE.LineBasicMaterial({ color: THEMES.dark.selected });
   private previewMaterial = new THREE.LineBasicMaterial({
@@ -320,6 +322,13 @@ export class SceneManager {
    * rotation (pan/zoom stay live — 2D drafting camera).
    */
   enterSketchMode(basis: PlaneBasis): void {
+    // remember where the user was so finishing the sketch isn't disorienting
+    if (!this.savedCamera) {
+      this.savedCamera = {
+        pos: this.controls.getPosition(new THREE.Vector3()),
+        target: this.controls.getTarget(new THREE.Vector3()),
+      };
+    }
     this.sketchBasis = basis;
     this.sketchPlane = new THREE.Plane(
       new THREE.Vector3(...basis.normal),
@@ -343,6 +352,29 @@ export class SceneManager {
     this.controls.mouseButtons.left = CameraControls.ACTION.ROTATE;
     this.sketchGroup.visible = true;
     this.setSketchDraft(null, null, null);
+    // fly back to the pre-sketch viewpoint
+    if (this.savedCamera) {
+      const { pos, target } = this.savedCamera;
+      this.savedCamera = null;
+      void this.controls.setLookAt(pos.x, pos.y, pos.z, target.x, target.y, target.z, true);
+    }
+    this.dirty = true;
+  }
+
+  /** Standard isometric view, framed on the model. */
+  homeView(): void {
+    const box = new THREE.Box3().setFromObject(this.modelGroup);
+    const sphere = box.isEmpty()
+      ? new THREE.Sphere(new THREE.Vector3(0, 0, 0), 80)
+      : box.getBoundingSphere(new THREE.Sphere());
+    const dir = new THREE.Vector3(1, -1, 0.8).normalize();
+    const dist = (sphere.radius * 1.6) / Math.tan((this.camera.fov * Math.PI) / 360);
+    const eye = sphere.center.clone().addScaledVector(dir, dist);
+    void this.controls.setLookAt(
+      eye.x, eye.y, eye.z,
+      sphere.center.x, sphere.center.y, sphere.center.z,
+      true,
+    );
     this.dirty = true;
   }
 

@@ -8,6 +8,7 @@ import { TopBar } from '../components/TopBar.tsx'
 import { Toolbar } from '../components/Toolbar.tsx'
 import { StatusBar } from '../components/StatusBar.tsx'
 import { SettingsDialog } from '../components/SettingsDialog.tsx'
+import { ViewportOverlays } from '../components/ViewportOverlays.tsx'
 
 export const Route = createFileRoute('/')({
   // the editor is fully client-side (WebGPU, workers, OPFS)
@@ -60,6 +61,7 @@ function Editor() {
 
       <main className="relative min-w-0 flex-1 overflow-hidden rounded-xl" style={{ boxShadow: 'var(--shadow-panel)' }}>
         <Viewport />
+        <ViewportOverlays />
 
         {/* floating chrome over the viewport */}
         <div className="pointer-events-none absolute inset-0 flex flex-col p-3">

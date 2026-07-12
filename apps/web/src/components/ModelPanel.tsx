@@ -14,6 +14,7 @@ import {
 import type { FeatureNode } from "@voltcad/model-api";
 import { useEditorStore } from "../state/document-store.ts";
 import { useSketchStore } from "../state/sketch-store.ts";
+import { humanizeError } from "../lib/pretty.ts";
 import { Checkbox } from "./ui/checkbox.tsx";
 import {
   Select,
@@ -128,6 +129,11 @@ function FeatureRow(props: {
       <div
         className={`group flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] transition-colors hover:bg-[rgb(127_127_127/0.08)] ${f.suppressed ? "opacity-40" : ""}`}
         onClick={props.onToggle}
+        onDoubleClick={() => {
+          if (f.type === "sketch")
+            useSketchStore.getState().begin({ kind: "datum", plane: "XY" }, f.id);
+        }}
+        title={f.type === "sketch" ? "Double-click to edit sketch" : undefined}
       >
         <Chevron size={13} style={{ color: "var(--text-muted)" }} />
         <Icon size={14} strokeWidth={1.7} style={{ color: "var(--text-secondary)" }} />
@@ -170,7 +176,7 @@ function FeatureRow(props: {
       </div>
       {props.error && (
         <p className="px-8 pb-1.5 text-[11px] leading-snug" style={{ color: "var(--err)" }}>
-          {props.error}
+          {humanizeError(props.error, useEditorStore.getState().doc)}
         </p>
       )}
       {props.expanded && <FeatureEditor feature={f} />}

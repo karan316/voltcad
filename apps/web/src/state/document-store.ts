@@ -40,11 +40,15 @@ interface EditorState {
   sceneVersion: number;
   /** bump to ask the viewport to re-frame the model */
   fitCounter: number;
+  /** bump to ask the viewport for the isometric home view */
+  homeCounter: number;
 
   selection: Selection[];
   hovered: Selection | null;
   /** feature id currently open in the inspector */
   activeFeatureId: string | null;
+  /** which sidebar tab is visible (lifted so errors can deep-link to Model) */
+  sidebarTab: "chat" | "model";
   canUndo: boolean;
   canRedo: boolean;
 
@@ -63,7 +67,9 @@ interface EditorState {
   select(sel: Selection, additive: boolean): void;
   clearSelection(): void;
   setActiveFeature(id: string | null): void;
+  setSidebarTab(tab: "chat" | "model"): void;
   requestFit(): void;
+  requestHome(): void;
   undo(): void;
   redo(): void;
 
@@ -188,9 +194,11 @@ export const useEditorStore = create<EditorState>((set, get) => {
     regenMs: 0,
     sceneVersion: 0,
     fitCounter: 0,
+    homeCounter: 0,
     selection: [],
     hovered: null,
     activeFeatureId: null,
+    sidebarTab: "chat" as const,
     canUndo: false,
     canRedo: false,
 
@@ -278,8 +286,16 @@ export const useEditorStore = create<EditorState>((set, get) => {
       set({ activeFeatureId: id });
     },
 
+    setSidebarTab(tab) {
+      set({ sidebarTab: tab });
+    },
+
     requestFit() {
       set({ fitCounter: get().fitCounter + 1 });
+    },
+
+    requestHome() {
+      set({ homeCounter: get().homeCounter + 1 });
     },
 
     undo() {
