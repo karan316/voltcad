@@ -1,15 +1,8 @@
 /// <reference lib="webworker" />
 import * as Comlink from "comlink";
-import {
-  regenerateDocument,
-  sceneTransferables,
-  type PartDocument,
-  type SceneUpdate,
-} from "@voltcad/model-api";
-import { createStandardRegistry } from "@voltcad/features-std";
+import { sceneTransferables, type PartDocument } from "@voltcad/model-api";
 import { getOC, type OC } from "./occt/init.ts";
-import { OcModelContext } from "./occt/context.ts";
-import { tessellateBody } from "./occt/tessellate.ts";
+import { getContext, regenerateIncremental } from "./occt/regen-cache.ts";
 import { Scope } from "./occt/scope.ts";
 import type { GeometryWorkerApi, MassProperties, RegenResult } from "./api.ts";
 
@@ -18,11 +11,9 @@ import type { GeometryWorkerApi, MassProperties, RegenResult } from "./api.ts";
  *
  * Owns the OCCT WASM instance and the B-Rep state of the current document.
  * The main thread only ever exchanges JSON documents (in) and typed-array
- * meshes (out, transferred zero-copy).
+ * meshes (out, transferred zero-copy). Regeneration is incremental: only
+ * features after the first change are re-executed (see regen-cache.ts).
  */
-
-const registry = createStandardRegistry();
-let ctx: OcModelContext | null = null;
 
 const api: GeometryWorkerApi = {
   async init() {
@@ -32,23 +23,19 @@ const api: GeometryWorkerApi = {
   async regenerate(doc: PartDocument): Promise<RegenResult> {
     const oc = await getOC();
     const t0 = performance.now();
-
-    // Full rebuild: dispose previous kernel state first (keeps WASM heap flat).
-    ctx?.dispose();
-    ctx = new OcModelContext(oc, doc.parameters);
-
-    const statuses = regenerateDocument(doc, ctx, registry);
-
-    const scene: SceneUpdate = {
-      bodies: ctx.bodies.map((b) => tessellateBody(oc, b)),
-      sketches: ctx.sketchDisplays,
+    const { statuses, scene, cachedCount } = regenerateIncremental(oc, doc);
+    const result: RegenResult = {
+      statuses,
+      scene,
+      cachedCount,
+      elapsedMs: performance.now() - t0,
     };
-    const result: RegenResult = { statuses, scene, elapsedMs: performance.now() - t0 };
     // Transfer mesh buffers instead of structured-cloning them.
     return Comlink.transfer(result, sceneTransferables(scene));
   },
 
   async massProperties(): Promise<MassProperties | null> {
+    const ctx = getContext();
     if (!ctx || ctx.bodies.length === 0) return null;
     const oc = await getOC();
     const scope = new Scope();
@@ -127,6 +114,7 @@ const api: GeometryWorkerApi = {
 };
 
 function buildCompound(oc: OC) {
+  const ctx = getContext();
   if (!ctx || ctx.bodies.length === 0) throw new Error("Nothing to export");
   const builder = new oc.BRep_Builder();
   const comp = new oc.TopoDS_Compound();

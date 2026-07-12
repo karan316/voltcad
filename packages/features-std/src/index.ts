@@ -2,8 +2,9 @@ import { FeatureRegistry } from "@voltcad/model-api";
 import { sketchFeature } from "./sketch.ts";
 import { extrudeFeature, revolveFeature } from "./extrude.ts";
 import { chamferFeature, filletFeature } from "./fillet.ts";
+import { importFeature } from "./import.ts";
 
-export { sketchFeature, extrudeFeature, revolveFeature, filletFeature, chamferFeature };
+export { sketchFeature, extrudeFeature, revolveFeature, filletFeature, chamferFeature, importFeature };
 
 /** Build a registry containing all standard features. */
 export function createStandardRegistry(): FeatureRegistry {
@@ -12,5 +13,6 @@ export function createStandardRegistry(): FeatureRegistry {
     .register(extrudeFeature)
     .register(revolveFeature)
     .register(filletFeature)
-    .register(chamferFeature);
+    .register(chamferFeature)
+    .register(importFeature);
 }

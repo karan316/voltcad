@@ -70,4 +70,10 @@ export interface ModelContext {
 
   /** Chamfer the given edges with an equal-distance chamfer. */
   chamfer(owner: FeatureId, edges: EntityHit[], distance: number): void;
+
+  /**
+   * Import bodies from a STEP or IGES payload (file text). Each root solid
+   * becomes a body; faces get stable positional names under `owner`.
+   */
+  importShape(owner: FeatureId, format: "step" | "iges", data: string): void;
 }

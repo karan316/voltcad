@@ -1,6 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
 import { useEditorStore } from '../state/document-store.ts'
+import { useSketchStore } from '../state/sketch-store.ts'
 import { Viewport } from '../components/viewport/Viewport.tsx'
 import { Sidebar } from '../components/Sidebar.tsx'
 import { TopBar } from '../components/TopBar.tsx'
@@ -20,6 +21,37 @@ function Editor() {
   // load saved document from OPFS + kick off the first regeneration
   useEffect(() => {
     void useEditorStore.getState().bootstrap()
+  }, [])
+
+  // global shortcuts: sketch-mode keys first, then document undo/redo
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return
+
+      const sketch = useSketchStore.getState()
+      if (sketch.active) {
+        if (e.key === 'Escape') {
+          e.preventDefault()
+          sketch.escape()
+        } else if (e.key === 'Enter') {
+          e.preventDefault()
+          sketch.finish()
+        } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
+          e.preventDefault()
+          sketch.removeLast() // draft-level undo while sketching
+        }
+        return
+      }
+
+      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== 'z') return
+      e.preventDefault()
+      const store = useEditorStore.getState()
+      if (e.shiftKey) store.redo()
+      else store.undo()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
   }, [])
 
   return (

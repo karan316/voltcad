@@ -45,6 +45,8 @@ interface EditorState {
   hovered: Selection | null;
   /** feature id currently open in the inspector */
   activeFeatureId: string | null;
+  canUndo: boolean;
+  canRedo: boolean;
 
   // actions
   bootstrap(): Promise<void>;
@@ -62,6 +64,8 @@ interface EditorState {
   clearSelection(): void;
   setActiveFeature(id: string | null): void;
   requestFit(): void;
+  undo(): void;
+  redo(): void;
 
   exportModel(format: "step" | "stl"): Promise<void>;
 }
@@ -154,9 +158,21 @@ async function runRegen(
 }
 
 export const useEditorStore = create<EditorState>((set, get) => {
+  /**
+   * Undo/redo: plain document snapshots. The doc is immutable JSON, so
+   * snapshots are just references — O(1) per edit, capped at 100 entries.
+   */
+  let past: PartDocument[] = [];
+  let future: PartDocument[] = [];
+
   /** Replace the document, autosave, regenerate. The single write path. */
-  function commit(doc: PartDocument): void {
-    set({ doc });
+  function commit(doc: PartDocument, fromHistory = false): void {
+    if (!fromHistory) {
+      past.push(get().doc);
+      if (past.length > 100) past.shift();
+      future = [];
+    }
+    set({ doc, canUndo: past.length > 0, canRedo: future.length > 0 });
     autosaveDocument(doc);
     void runRegen(get, (p) => set(p));
   }
@@ -175,6 +191,8 @@ export const useEditorStore = create<EditorState>((set, get) => {
     selection: [],
     hovered: null,
     activeFeatureId: null,
+    canUndo: false,
+    canRedo: false,
 
     async bootstrap() {
       const saved = await loadDocumentFromOpfs();
@@ -262,6 +280,20 @@ export const useEditorStore = create<EditorState>((set, get) => {
 
     requestFit() {
       set({ fitCounter: get().fitCounter + 1 });
+    },
+
+    undo() {
+      const prev = past.pop();
+      if (!prev) return;
+      future.push(get().doc);
+      commit(prev, true);
+    },
+
+    redo() {
+      const next = future.pop();
+      if (!next) return;
+      past.push(get().doc);
+      commit(next, true);
     },
 
     async exportModel(format) {

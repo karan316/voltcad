@@ -1,6 +1,8 @@
 import { useEffect, useRef } from "react";
+import { sampleSketchEntities, type SketchEntity } from "@voltcad/model-api";
 import { useEditorStore } from "../../state/document-store.ts";
 import { useThemeStore } from "../../state/theme-store.ts";
+import { useSketchStore } from "../../state/sketch-store.ts";
 import { SceneManager } from "./scene-manager.ts";
 
 /**
@@ -74,6 +76,54 @@ export function Viewport() {
     [],
   );
 
+  // sketch mode: enter/exit + draft overlay rebuild
+  useEffect(
+    () =>
+      useSketchStore.subscribe((s, prev) => {
+        const manager = managerRef.current;
+        if (!manager) return;
+        if (s.active !== prev.active) {
+          if (s.active) manager.enterSketchMode(s.basis);
+          else manager.exitSketchMode();
+        }
+        if (!s.active || s.version === prev.version) return;
+        if (s.basis !== prev.basis && s.active) manager.enterSketchMode(s.basis);
+
+        // committed entities in draft color
+        const draft = sampleSketchEntities(s.plane, 0, s.entities);
+        // live preview from pending point → cursor
+        let preview: Float32Array | null = null;
+        if (s.pending && s.cursor) {
+          const previewEntity: SketchEntity | null =
+            s.tool === "line"
+              ? { id: "_p", type: "line", start: s.pending, end: s.cursor }
+              : s.tool === "rectangle"
+                ? { id: "_p", type: "rectangle", corner1: s.pending, corner2: s.cursor }
+                : s.tool === "circle"
+                  ? {
+                      id: "_p",
+                      type: "circle",
+                      center: s.pending,
+                      radius: Math.max(
+                        0.01,
+                        Math.hypot(s.cursor[0] - s.pending[0], s.cursor[1] - s.pending[1]),
+                      ),
+                    }
+                  : null;
+          if (previewEntity) preview = sampleSketchEntities(s.plane, 0, [previewEntity]);
+        }
+        const cursor3 = s.cursor
+          ? ([
+              s.basis.origin[0] + s.basis.u[0] * s.cursor[0] + s.basis.v[0] * s.cursor[1],
+              s.basis.origin[1] + s.basis.u[1] * s.cursor[0] + s.basis.v[1] * s.cursor[1],
+              s.basis.origin[2] + s.basis.u[2] * s.cursor[0] + s.basis.v[2] * s.cursor[1],
+            ] as [number, number, number])
+          : null;
+        manager.setSketchDraft(draft, preview, cursor3);
+      }),
+    [],
+  );
+
   // pointer → pick. Hover work is throttled to one raycast per frame.
   const rafPending = useRef(false);
   const lastMove = useRef<{ x: number; y: number } | null>(null);
@@ -99,6 +149,12 @@ export function Viewport() {
           rafPending.current = false;
           const manager = managerRef.current;
           if (!manager || !lastMove.current) return;
+          const sketch = useSketchStore.getState();
+          if (sketch.active) {
+            const uv = manager.raycastSketchPlane(lastMove.current.x, lastMove.current.y);
+            if (uv) sketch.hover(uv, manager.worldPerPixel() * 10);
+            return;
+          }
           useEditorStore
             .getState()
             .setHovered(manager.pick(lastMove.current.x, lastMove.current.y));
@@ -117,6 +173,12 @@ export function Viewport() {
         const manager = managerRef.current;
         if (!manager) return;
         const { x, y } = ndc(e);
+        const sketch = useSketchStore.getState();
+        if (sketch.active) {
+          const uv = manager.raycastSketchPlane(x, y);
+          if (uv) sketch.click(uv, manager.worldPerPixel() * 10);
+          return;
+        }
         const hit = manager.pick(x, y);
         const store = useEditorStore.getState();
         if (hit) store.select(hit, e.shiftKey);

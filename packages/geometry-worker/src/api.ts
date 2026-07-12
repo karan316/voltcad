@@ -8,6 +8,8 @@ import type { FeatureStatus, PartDocument, SceneUpdate } from "@voltcad/model-ap
 export interface RegenResult {
   statuses: FeatureStatus[];
   scene: SceneUpdate;
+  /** Features served from the incremental checkpoint cache. */
+  cachedCount: number;
   /** Total kernel wall time, for the perf HUD. */
   elapsedMs: number;
 }

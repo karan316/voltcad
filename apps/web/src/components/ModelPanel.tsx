@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import type { FeatureNode } from "@voltcad/model-api";
 import { useEditorStore } from "../state/document-store.ts";
+import { useSketchStore } from "../state/sketch-store.ts";
 import { Checkbox } from "./ui/checkbox.tsx";
 import {
   Select,
@@ -133,6 +134,18 @@ function FeatureRow(props: {
         <span className="flex-1 truncate">{f.name}</span>
         {props.status === "error" && <CircleAlert size={13} style={{ color: "var(--err)" }} />}
         <span className="hidden items-center gap-0.5 group-hover:flex">
+          {f.type === "sketch" && (
+            <button
+              className="icon-btn"
+              data-tip="Edit sketch"
+              onClick={(e) => {
+                e.stopPropagation();
+                useSketchStore.getState().begin({ kind: "datum", plane: "XY" }, f.id);
+              }}
+            >
+              <PenLine size={12} />
+            </button>
+          )}
           <button
             className="icon-btn"
             data-tip={f.suppressed ? "Unsuppress" : "Suppress"}

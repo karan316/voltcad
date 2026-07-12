@@ -1,4 +1,6 @@
+import { useRef } from "react";
 import { Download, Moon, Settings2, Sun, Upload } from "lucide-react";
+import { newFeatureId } from "@voltcad/model-api";
 import { useEditorStore } from "../state/document-store.ts";
 import { useThemeStore } from "../state/theme-store.ts";
 
@@ -11,6 +13,21 @@ export function TopBar(props: { onOpenSettings: () => void }) {
   const exportModel = useEditorStore((s) => s.exportModel);
   const theme = useThemeStore((s) => s.theme);
   const toggleTheme = useThemeStore((s) => s.toggle);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const onImportFile = async (file: File) => {
+    const text = await file.text();
+    const format = /\.(igs|iges)$/i.test(file.name) ? "iges" : "step";
+    useEditorStore.getState().addFeatures([
+      {
+        id: newFeatureId("imp"),
+        type: "import",
+        name: file.name,
+        params: { format, data: text },
+      },
+    ]);
+    useEditorStore.getState().requestFit();
+  };
 
   const statusLabel =
     kernelStatus === "loading"
@@ -52,7 +69,22 @@ export function TopBar(props: { onOpenSettings: () => void }) {
         />
       </div>
 
-      <button className="tool-btn" data-tip="Import (soon)" disabled>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".step,.stp,.iges,.igs"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) void onImportFile(file);
+          e.target.value = ""; // allow re-importing the same file
+        }}
+      />
+      <button
+        className="tool-btn"
+        data-tip="Import STEP / IGES"
+        onClick={() => fileInputRef.current?.click()}
+      >
         <Upload size={15} strokeWidth={1.8} />
       </button>
       <button

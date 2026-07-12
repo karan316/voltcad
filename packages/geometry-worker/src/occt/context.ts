@@ -22,7 +22,7 @@ import {
   type SketchPlane,
 } from "@voltcad/model-api";
 import { FaceNameMap, edgeNameFromFaces, listToArray, propagateFaceNames, type NamedBody } from "./naming.ts";
-import { buildProfiles, sketchDisplayPositions, type BuiltProfile } from "./sketch-builder.ts";
+import { buildProfiles, sampleSketchEntities, type BuiltProfile } from "./sketch-builder.ts";
 import { Scope } from "./scope.ts";
 
 type OC = OpenCascadeInstance;
@@ -33,14 +33,29 @@ interface ProfileRecord extends BuiltProfile {
 }
 
 /**
+ * Immutable snapshot of context state after a feature — the unit of the
+ * incremental-regen checkpoint cache. Arrays are copied; the referenced
+ * NamedBody/ProfileRecord objects (and their kernel shapes) are shared and
+ * never mutated after creation.
+ */
+export interface CtxSnapshot {
+  bodies: NamedBody[];
+  profiles: [string, ProfileRecord[]][];
+  handles: ProfileRecord[];
+  sketchDisplays: SketchDisplay[];
+}
+
+/**
  * OcModelContext — the single ModelContext implementation, backed by
- * OpenCascade. One instance lives for the duration of one regeneration pass;
- * bodies survive after regen (for tessellation/export) until the next pass
- * disposes them.
+ * OpenCascade. With incremental regen, one long-lived instance is resumed
+ * from checkpoints; kernel-object ownership (FaceNameMap disposal) is
+ * coordinated by the worker's cache layer, NOT here.
  */
 export class OcModelContext implements ModelContext {
-  readonly bodies: NamedBody[] = [];
-  readonly sketchDisplays: SketchDisplay[] = [];
+  bodies: NamedBody[] = [];
+  sketchDisplays: SketchDisplay[] = [];
+  /** Face maps swapped out mid-feature; candidates for disposal (see worker). */
+  retired: FaceNameMap[] = [];
 
   private profiles = new Map<string, ProfileRecord[]>();
   private handles: ProfileRecord[] = []; // ShapeHandle → record
@@ -52,6 +67,38 @@ export class OcModelContext implements ModelContext {
     private oc: OC,
     private parameters: Readonly<Record<string, Expression>>,
   ) {}
+
+  /** Re-point expression evaluation at a new parameter table (per regen). */
+  setParameters(parameters: Readonly<Record<string, Expression>>): void {
+    this.parameters = parameters;
+  }
+
+  snapshot(): CtxSnapshot {
+    return {
+      bodies: [...this.bodies],
+      profiles: [...this.profiles.entries()].map(([k, v]) => [k, [...v]]),
+      handles: [...this.handles],
+      sketchDisplays: [...this.sketchDisplays],
+    };
+  }
+
+  restore(snap: CtxSnapshot): void {
+    this.bodies = [...snap.bodies];
+    this.profiles = new Map(snap.profiles.map(([k, v]) => [k, [...v]]));
+    this.handles = [...snap.handles];
+    this.sketchDisplays = [...snap.sketchDisplays];
+    this.edgeCache = null;
+  }
+
+  /** Reset to empty (fresh full regen). Disposal is the cache layer's job. */
+  reset(): void {
+    this.bodies = [];
+    this.sketchDisplays = [];
+    this.profiles.clear();
+    this.handles = [];
+    this.retired = [];
+    this.edgeCache = null;
+  }
 
   // ---------------------------------------------------------------- expression
 
@@ -73,7 +120,7 @@ export class OcModelContext implements ModelContext {
     this.profiles.set(owner, records);
     this.sketchDisplays.push({
       featureId: owner,
-      positions: sketchDisplayPositions(plane, offset, entities),
+      positions: sampleSketchEntities(plane, offset, entities),
     });
     return records.map((r) => (this.handles.push(r) - 1) as ShapeHandle);
   }
@@ -300,6 +347,54 @@ export class OcModelContext implements ModelContext {
     this.filletOrChamfer(owner, edges, distance, "chamfer");
   }
 
+  importShape(owner: FeatureId, format: "step" | "iges", data: string): void {
+    const oc = this.oc;
+    const scope = new Scope();
+    const path = `/import_${owner}.${format}`;
+    try {
+      oc.FS.writeFile(path, data);
+      const reader =
+        format === "step"
+          ? scope.add(new oc.STEPControl_Reader_1())
+          : scope.add(new oc.IGESControl_Reader_1());
+      const status = reader.ReadFile(path);
+      if (status !== oc.IFSelect_ReturnStatus.IFSelect_RetDone)
+        throw new RegenError("KERNEL_FAILURE", `Failed to parse ${format.toUpperCase()} file`);
+      const progress = scope.add(new oc.Message_ProgressRange_1());
+      reader.TransferRoots(progress);
+      if (reader.NbShapes() === 0)
+        throw new RegenError("KERNEL_FAILURE", `${format.toUpperCase()} file contains no shapes`);
+      const shape = reader.OneShape();
+
+      // each solid becomes its own body; loose shells/faces become one body
+      const solids: TopoDS_Shape[] = [];
+      const ex = scope.add(
+        new oc.TopExp_Explorer_2(
+          shape,
+          oc.TopAbs_ShapeEnum.TopAbs_SOLID as never,
+          oc.TopAbs_ShapeEnum.TopAbs_SHAPE as never,
+        ),
+      );
+      for (; ex.More(); ex.Next()) solids.push(ex.Current());
+      const bodies = solids.length > 0 ? solids : [shape];
+
+      bodies.forEach((body, i) => {
+        // positional face names are stable for a fixed payload — imported
+        // bodies have no feature history to derive semantic names from
+        const faces = new FaceNameMap(oc, body);
+        faces.fillUnnamed(`${owner}:${i}`);
+        this.pushBody({ name: `${owner}/body:${i}`, shape: body, faces });
+      });
+    } finally {
+      scope.dispose();
+      try {
+        oc.FS.unlink(path);
+      } catch {
+        /* never written */
+      }
+    }
+  }
+
   private filletOrChamfer(
     owner: FeatureId,
     edges: EntityHit[],
@@ -405,7 +500,7 @@ export class OcModelContext implements ModelContext {
         scope.dispose();
       }
     }
-    faces.dispose();
+    this.retired.push(faces); // tool-body map no longer referenced by a body
   }
 
   private pushBody(body: NamedBody): void {
@@ -414,18 +509,11 @@ export class OcModelContext implements ModelContext {
   }
 
   private replaceBody(idx: number, next: NamedBody): void {
-    this.bodies[idx]!.faces.dispose();
+    // NEVER dispose here — the replaced map may be referenced by an
+    // incremental-regen checkpoint. The worker cache layer owns disposal.
+    this.retired.push(this.bodies[idx]!.faces);
     this.bodies[idx] = next;
     this.edgeCache = null;
-  }
-
-  /** Free all kernel objects owned by this context. */
-  dispose(): void {
-    for (const b of this.bodies) b.faces.dispose();
-    this.bodies.length = 0;
-    this.edgeCache = null;
-    this.handles.length = 0;
-    this.profiles.clear();
   }
 }
 

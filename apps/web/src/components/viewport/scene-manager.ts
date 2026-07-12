@@ -1,6 +1,7 @@
 import * as THREE from "three/webgpu";
 import CameraControls from "camera-controls";
-import type { BodyMesh, SceneUpdate } from "@voltcad/model-api";
+import type { BodyMesh, PlaneBasis, SceneUpdate } from "@voltcad/model-api";
+import { toUV } from "@voltcad/model-api";
 import type { Selection } from "../../state/document-store.ts";
 
 CameraControls.install({ THREE });
@@ -64,12 +65,27 @@ export class SceneManager {
   private modelGroup = new THREE.Group();
   private sketchGroup = new THREE.Group();
   private highlightGroup = new THREE.Group();
+  private draftGroup = new THREE.Group();
   private bodies: BodyView[] = [];
   private dirty = true;
   private disposed = false;
   private theme: ViewportTheme = "dark";
   private grid: THREE.GridHelper | null = null;
   private hemi!: THREE.HemisphereLight;
+  private sketchPlane: THREE.Plane | null = null;
+  private sketchBasis: PlaneBasis | null = null;
+
+  private draftMaterial = new THREE.LineBasicMaterial({ color: THEMES.dark.selected });
+  private previewMaterial = new THREE.LineBasicMaterial({
+    color: THEMES.dark.hover,
+    transparent: true,
+    opacity: 0.7,
+  });
+  private cursorMaterial = new THREE.PointsMaterial({
+    color: THEMES.dark.selected,
+    size: 8,
+    sizeAttenuation: false,
+  });
 
   private bodyMaterial = new THREE.MeshStandardMaterial({
     color: THEMES.dark.body,
@@ -136,7 +152,7 @@ export class SceneManager {
     this.scene.add(fill);
 
     this.scene.add(new THREE.AxesHelper(30));
-    this.scene.add(this.modelGroup, this.sketchGroup, this.highlightGroup);
+    this.scene.add(this.modelGroup, this.sketchGroup, this.highlightGroup, this.draftGroup);
 
     this.raycaster.params.Line.threshold = 0.8;
 
@@ -149,6 +165,9 @@ export class SceneManager {
   setTheme(theme: ViewportTheme): void {
     this.theme = theme;
     const t = THEMES[theme];
+    this.draftMaterial.color.setHex(t.selected);
+    this.previewMaterial.color.setHex(t.hover);
+    this.cursorMaterial.color.setHex(t.selected);
     this.renderer?.setClearColor(t.background);
     this.bodyMaterial.color.setHex(t.body);
     this.edgeMaterial.color.setHex(t.edge);
@@ -291,6 +310,79 @@ export class SceneManager {
 
     for (const sel of selection) add(sel, false);
     if (hovered && !selection.some((s) => s.name === hovered.name)) add(hovered, true);
+    this.dirty = true;
+  }
+
+  // ------------------------------------------------------------- sketch mode
+
+  /**
+   * Enter sketch mode: fly the camera to look squarely at the plane and lock
+   * rotation (pan/zoom stay live — 2D drafting camera).
+   */
+  enterSketchMode(basis: PlaneBasis): void {
+    this.sketchBasis = basis;
+    this.sketchPlane = new THREE.Plane(
+      new THREE.Vector3(...basis.normal),
+      -new THREE.Vector3(...basis.normal).dot(new THREE.Vector3(...basis.origin)),
+    );
+    const dist = Math.max(this.controls.distance, 120);
+    const target = new THREE.Vector3(...basis.origin);
+    const eye = target.clone().addScaledVector(new THREE.Vector3(...basis.normal), dist);
+    // up = plane's V axis so the sketch grid reads upright
+    this.camera.up.set(...basis.v);
+    void this.controls.setLookAt(eye.x, eye.y, eye.z, target.x, target.y, target.z, true);
+    this.controls.mouseButtons.left = CameraControls.ACTION.NONE;
+    this.sketchGroup.visible = false; // draft overlay replaces saved wireframes
+    this.dirty = true;
+  }
+
+  exitSketchMode(): void {
+    this.sketchBasis = null;
+    this.sketchPlane = null;
+    this.camera.up.set(0, 0, 1);
+    this.controls.mouseButtons.left = CameraControls.ACTION.ROTATE;
+    this.sketchGroup.visible = true;
+    this.setSketchDraft(null, null, null);
+    this.dirty = true;
+  }
+
+  /** Pointer NDC → snapped-to-plane UV coordinates (mm). Null if parallel. */
+  raycastSketchPlane(ndcX: number, ndcY: number): [number, number] | null {
+    if (!this.sketchPlane || !this.sketchBasis) return null;
+    this.raycaster.setFromCamera(new THREE.Vector2(ndcX, ndcY), this.camera);
+    const hit = new THREE.Vector3();
+    if (!this.raycaster.ray.intersectPlane(this.sketchPlane, hit)) return null;
+    return toUV(this.sketchBasis, [hit.x, hit.y, hit.z]);
+  }
+
+  /** World-units per CSS pixel at the camera target (for snap radii). */
+  worldPerPixel(): number {
+    const h = this.container.clientHeight || 1;
+    return (2 * this.controls.distance * Math.tan((this.camera.fov * Math.PI) / 360)) / h;
+  }
+
+  /** Update the draft overlay: committed soup, live preview soup, cursor. */
+  setSketchDraft(
+    draft: Float32Array | null,
+    preview: Float32Array | null,
+    cursor: [number, number, number] | null,
+  ): void {
+    for (const child of [...this.draftGroup.children])
+      (child as THREE.Mesh).geometry.dispose();
+    this.draftGroup.clear();
+
+    const addLines = (soup: Float32Array, material: THREE.LineBasicMaterial) => {
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute("position", new THREE.BufferAttribute(soup, 3));
+      this.draftGroup.add(new THREE.LineSegments(geo, material));
+    };
+    if (draft && draft.length > 0) addLines(draft, this.draftMaterial);
+    if (preview && preview.length > 0) addLines(preview, this.previewMaterial);
+    if (cursor) {
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(cursor), 3));
+      this.draftGroup.add(new THREE.Points(geo, this.cursorMaterial));
+    }
     this.dirty = true;
   }
 

@@ -4,7 +4,18 @@ import type {
   TopoDS_Face,
   TopoDS_Wire,
 } from "opencascade.js/dist/opencascade.full.js";
-import { RegenError, type Point2, type SketchEntity, type SketchPlane } from "@voltcad/model-api";
+import {
+  RegenError,
+  arcPoint,
+  arcSpan,
+  planeBasis,
+  sampleSketchEntities,
+  to3D,
+  type PlaneBasis,
+  type Point2,
+  type SketchEntity,
+  type SketchPlane,
+} from "@voltcad/model-api";
 import { Scope } from "./scope.ts";
 
 type OC = OpenCascadeInstance;
@@ -20,35 +31,8 @@ type OC = OpenCascadeInstance;
  *      orientation so we never depend on user draw direction.
  */
 
-/** Orthonormal basis of a sketch plane: p3d = origin + u*U + v*V. */
-export interface PlaneBasis {
-  origin: [number, number, number];
-  u: [number, number, number];
-  v: [number, number, number];
-  normal: [number, number, number];
-}
-
-export function planeBasis(plane: SketchPlane, offset: number): PlaneBasis {
-  // Right-handed: normal = u × v for each datum plane.
-  const bases: Record<string, PlaneBasis> = {
-    XY: { origin: [0, 0, 0], u: [1, 0, 0], v: [0, 1, 0], normal: [0, 0, 1] },
-    XZ: { origin: [0, 0, 0], u: [1, 0, 0], v: [0, 0, 1], normal: [0, -1, 0] },
-    YZ: { origin: [0, 0, 0], u: [0, 1, 0], v: [0, 0, 1], normal: [1, 0, 0] },
-  };
-  const b = bases[plane.plane]!;
-  return {
-    ...b,
-    origin: [b.normal[0] * offset, b.normal[1] * offset, b.normal[2] * offset],
-  };
-}
-
-export function to3D(b: PlaneBasis, p: Point2): [number, number, number] {
-  return [
-    b.origin[0] + b.u[0] * p[0] + b.v[0] * p[1],
-    b.origin[1] + b.u[1] * p[0] + b.v[1] * p[1],
-    b.origin[2] + b.u[2] * p[0] + b.v[2] * p[1],
-  ];
-}
+export { planeBasis, to3D, sampleSketchEntities };
+export type { PlaneBasis };
 
 /** A single traversable curve segment in sketch UV space. */
 type Segment =
@@ -67,11 +51,6 @@ type Segment =
   | { kind: "circle"; entId: string; center: Point2; radius: number };
 
 const TOL = 1e-6;
-
-function arcPoint(center: Point2, radius: number, angleDeg: number): Point2 {
-  const a = (angleDeg * Math.PI) / 180;
-  return [center[0] + radius * Math.cos(a), center[1] + radius * Math.sin(a)];
-}
 
 /** Expand sketch entities into chainable segments (construction excluded). */
 function toSegments(entities: SketchEntity[]): Segment[] {
@@ -189,13 +168,6 @@ function samplePolygon(loop: Loop): Point2[] {
     }
   }
   return pts;
-}
-
-/** CCW arc span in degrees, normalized to (0, 360]. */
-function arcSpan(s: { startAngle: number; endAngle: number }): number {
-  let span = s.endAngle - s.startAngle;
-  while (span <= 0) span += 360;
-  return span;
 }
 
 function pointInPolygon(p: Point2, poly: Point2[]): boolean {
@@ -326,53 +298,4 @@ export function buildProfiles(
     // kernel); the builder objects themselves are freed here.
     scope.dispose();
   }
-}
-
-/** Sample all sketch entities into a world-space line-segment soup. */
-export function sketchDisplayPositions(
-  plane: SketchPlane,
-  offset: number,
-  entities: SketchEntity[],
-): Float32Array {
-  const basis = planeBasis(plane, offset);
-  const out: number[] = [];
-  const pushSeg = (a: Point2, b: Point2) => {
-    out.push(...to3D(basis, a), ...to3D(basis, b));
-  };
-  for (const e of entities) {
-    switch (e.type) {
-      case "line":
-        pushSeg(e.start, e.end);
-        break;
-      case "rectangle": {
-        const [x1, y1] = e.corner1;
-        const [x2, y2] = e.corner2;
-        pushSeg([x1, y1], [x2, y1]);
-        pushSeg([x2, y1], [x2, y2]);
-        pushSeg([x2, y2], [x1, y2]);
-        pushSeg([x1, y2], [x1, y1]);
-        break;
-      }
-      case "circle": {
-        const n = 72;
-        for (let k = 0; k < n; k++)
-          pushSeg(
-            arcPoint(e.center, e.radius, (360 * k) / n),
-            arcPoint(e.center, e.radius, (360 * (k + 1)) / n),
-          );
-        break;
-      }
-      case "arc": {
-        const span = arcSpan(e);
-        const n = Math.max(4, Math.ceil(span / 5));
-        for (let k = 0; k < n; k++)
-          pushSeg(
-            arcPoint(e.center, e.radius, e.startAngle + (span * k) / n),
-            arcPoint(e.center, e.radius, e.startAngle + (span * (k + 1)) / n),
-          );
-        break;
-      }
-    }
-  }
-  return new Float32Array(out);
 }

@@ -2,6 +2,7 @@ export * from "./ids.ts";
 export * from "./expression.ts";
 export * from "./query.ts";
 export * from "./sketch.ts";
+export * from "./sketch-geometry.ts";
 export * from "./errors.ts";
 export * from "./tessellation.ts";
 export * from "./model-context.ts";
