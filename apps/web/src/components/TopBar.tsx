@@ -1,32 +1,17 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef } from "react";
 import { Download, Moon, Settings2, Sun, Upload } from "lucide-react";
 import { newFeatureId } from "@voltcad/model-api";
 import { useEditorStore } from "../state/document-store.ts";
 import { useThemeStore } from "../state/theme-store.ts";
 
-/** Top document bar: status pill, document name, export/theme/settings. */
+/** Top document bar: document name, import/export, theme, settings. */
 export function TopBar(props: { onOpenSettings: () => void }) {
   const doc = useEditorStore((s) => s.doc);
   const replaceDocument = useEditorStore((s) => s.replaceDocument);
-  const regenBusy = useEditorStore((s) => s.regenBusy);
-  const kernelStatus = useEditorStore((s) => s.kernelStatus);
   const exportModel = useEditorStore((s) => s.exportModel);
   const theme = useThemeStore((s) => s.theme);
   const toggleTheme = useThemeStore((s) => s.toggle);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // Debounced busy indicator: most regens finish in <100ms thanks to the
-  // incremental cache — flashing "regenerating" for one frame is just noise.
-  // Only surface the busy state when the kernel is genuinely working.
-  const [showBusy, setShowBusy] = useState(false);
-  useEffect(() => {
-    if (!regenBusy) {
-      setShowBusy(false);
-      return;
-    }
-    const timer = setTimeout(() => setShowBusy(true), 250);
-    return () => clearTimeout(timer);
-  }, [regenBusy]);
 
   const onImportFile = async (file: File) => {
     const text = await file.text();
@@ -42,36 +27,10 @@ export function TopBar(props: { onOpenSettings: () => void }) {
     useEditorStore.getState().requestFit();
   };
 
-  const statusLabel =
-    kernelStatus === "loading"
-      ? "loading kernel"
-      : kernelStatus === "error"
-        ? "kernel error"
-        : showBusy
-          ? "regenerating"
-          : "live";
-  const statusColor =
-    kernelStatus === "error"
-      ? "var(--err)"
-      : showBusy || kernelStatus === "loading"
-        ? "var(--status)"
-        : "var(--ok)";
-
   return (
     <div className="glass-panel flex h-11 items-center gap-2 px-3">
-      <span
-        className="status-pill"
-        style={{
-          background: kernelStatus === "error" ? "rgb(214 69 69 / 0.12)" : showBusy || kernelStatus === "loading" ? "rgb(232 89 12 / 0.12)" : "var(--ok-bg)",
-          color: statusColor,
-        }}
-      >
-        <span
-          className={`inline-block h-1.5 w-1.5 rounded-full ${showBusy ? "animate-pulse" : ""}`}
-          style={{ background: statusColor }}
-        />
-        {statusLabel}
-      </span>
+      {/* spacer balancing the right-side buttons so the name stays centered */}
+      <div className="w-40" />
 
       <div className="flex flex-1 justify-center">
         <input

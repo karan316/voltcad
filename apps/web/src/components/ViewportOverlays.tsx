@@ -1,17 +1,31 @@
+import { useEffect, useState } from "react";
 import { CircleAlert, Loader2, PenLine, Sparkles } from "lucide-react";
 import { useEditorStore } from "../state/document-store.ts";
 import { useSketchStore } from "../state/sketch-store.ts";
 import { humanizeError } from "../lib/pretty.ts";
 
 /**
- * Viewport overlays: kernel-loading card, empty-document guidance, and a
- * regeneration-error banner that is visible regardless of which sidebar tab
- * is open (errors must never be silent).
+ * Viewport overlays: kernel-loading card, empty-document guidance, a subtle
+ * regeneration loader line, and a regeneration-error banner that is visible
+ * regardless of which sidebar tab is open (errors must never be silent).
  */
 export function ViewportOverlays() {
   const kernelStatus = useEditorStore((s) => s.kernelStatus);
   const featureCount = useEditorStore((s) => s.doc.features.length);
   const sketchActive = useSketchStore((s) => s.active);
+  const regenBusy = useEditorStore((s) => s.regenBusy);
+
+  // debounced: most regens are <100ms thanks to the incremental cache —
+  // only show the loader when the kernel is genuinely working
+  const [showBusy, setShowBusy] = useState(false);
+  useEffect(() => {
+    if (!regenBusy) {
+      setShowBusy(false);
+      return;
+    }
+    const timer = setTimeout(() => setShowBusy(true), 300);
+    return () => clearTimeout(timer);
+  }, [regenBusy]);
   const doc = useEditorStore((s) => s.doc);
   // selector must return a primitive (string) — returning a fresh object every
   // call makes React's useSyncExternalStore loop forever
@@ -28,6 +42,13 @@ export function ViewportOverlays() {
 
   return (
     <>
+      {/* subtle indeterminate loader along the top edge while regenerating */}
+      {showBusy && (
+        <div className="pointer-events-none absolute inset-x-0 top-0 z-30 h-[2px] overflow-hidden">
+          <div className="regen-loader h-full w-2/5 rounded-full" style={{ background: "var(--label)" }} />
+        </div>
+      )}
+
       {kernelStatus === "loading" && (
         <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center">
           <div className="glass-panel flex items-center gap-3 px-5 py-3.5">
