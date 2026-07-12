@@ -22,6 +22,9 @@ importers:
       '@fontsource/ibm-plex-mono':
         specifier: ^5.2.7
         version: 5.2.7
+      '@salusoft89/planegcs':
+        specifier: ^1.2.0
+        version: 1.2.0
       '@tailwindcss/vite':
         specifier: ^4.1.18
         version: 4.3.2(vite@8.1.4(@types/node@22.20.1)(jiti@2.7.0))
@@ -679,6 +682,9 @@ packages:
 
   '@rolldown/pluginutils@1.0.1':
     resolution: {integrity: sha512-2j9bGt5Jh8hj+vPtgzPtl72j0yRxHAyumoo6TNfAjsLB04UtpSvPbPcDcBMxz7n+9CYB0c1GxQFxYRg2jimqGw==}
+
+  '@salusoft89/planegcs@1.2.0':
+    resolution: {integrity: sha512-NcdWJnJRCnIDvM9yJD98Jm8qaK//wRqMEbJ0WtibKnhbzI484TjIEbYD6EVUZejndXGC9yBkuKgqXg+9buzi6Q==}
 
   '@solid-primitives/event-listener@2.4.6':
     resolution: {integrity: sha512-5I0YJcTVYIWoMmgBSROBZGcz+ymhew/pGTg2dHW74BUjFKsV8Li4bOZYl0YAGP4mHw5o4UBd9/BEesqBci3wxw==}
@@ -2579,6 +2585,8 @@ snapshots:
     optional: true
 
   '@rolldown/pluginutils@1.0.1': {}
+
+  '@salusoft89/planegcs@1.2.0': {}
 
   '@solid-primitives/event-listener@2.4.6(solid-js@1.9.14)':
     dependencies:

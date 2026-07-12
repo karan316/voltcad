@@ -76,4 +76,40 @@ export interface ModelContext {
    * becomes a body; faces get stable positional names under `owner`.
    */
   importShape(owner: FeatureId, format: "step" | "iges", data: string): void;
+
+  /**
+   * Hollow a body: remove the given faces and offset the remaining walls
+   * inward by `thickness` (classic shell).
+   */
+  shell(owner: FeatureId, removeFaces: EntityHit[], thickness: number): void;
+
+  /**
+   * Create transformed copies of bodies (patterns/mirror). With `merge`,
+   * copies fuse into their source body; otherwise each becomes a new body.
+   */
+  transformBodies(
+    owner: FeatureId,
+    bodies: EntityHit[],
+    transforms: BodyTransform[],
+    merge: boolean,
+  ): void;
+
+  /** Boolean between two existing bodies. The tool body is consumed. */
+  booleanBodies(
+    owner: FeatureId,
+    target: EntityHit,
+    tool: EntityHit,
+    op: "union" | "subtract" | "intersect",
+  ): void;
 }
+
+/** Serializable rigid transform for patterns and mirrors. */
+export type BodyTransform =
+  | { kind: "translate"; offset: [number, number, number] }
+  | {
+      kind: "rotate";
+      axisPoint: [number, number, number];
+      axisDir: [number, number, number];
+      angleDeg: number;
+    }
+  | { kind: "mirror"; planePoint: [number, number, number]; planeNormal: [number, number, number] };

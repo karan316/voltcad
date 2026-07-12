@@ -10,6 +10,7 @@ import { StatusBar } from '../components/StatusBar.tsx'
 import { SettingsDialog } from '../components/SettingsDialog.tsx'
 import { ViewportOverlays } from '../components/ViewportOverlays.tsx'
 import { DimensionInput } from '../components/DimensionInput.tsx'
+import { ConstraintBar } from '../components/ConstraintBar.tsx'
 import { ViewCube } from '../components/ViewCube.tsx'
 
 export const Route = createFileRoute('/')({
@@ -74,6 +75,7 @@ function Editor() {
             <div className="pointer-events-auto flex flex-col items-center">
               <Toolbar />
               <DimensionInput />
+              <ConstraintBar />
             </div>
           </div>
           <div className="mt-1 flex justify-end">

@@ -12,6 +12,7 @@ import {
   planeBasis,
   sampleSketchEntitiesFromBasis,
   to3D,
+  type BodyTransform,
   type EntityHit,
   type EntityQuery,
   type Expression,
@@ -497,6 +498,184 @@ export class OcModelContext implements ModelContext {
       } finally {
         scope.dispose();
       }
+    }
+  }
+
+  // ------------------------------------------------- shell / pattern / boolean
+
+  shell(owner: FeatureId, removeFaces: EntityHit[], thickness: number): void {
+    const oc = this.oc;
+    // all removed faces must belong to one body
+    const bodyIdx = this.bodies.findIndex((b) =>
+      removeFaces.some((h) => b.faces.entries().some((e) => e.name === h.name)),
+    );
+    if (bodyIdx < 0)
+      throw new RegenError("QUERY_NO_MATCH", "Shell: selected faces no longer exist");
+    const body = this.bodies[bodyIdx]!;
+    const scope = new Scope();
+    try {
+      const closing = scope.add(new oc.TopTools_ListOfShape_1());
+      let found = 0;
+      for (const { face, name } of body.faces.entries()) {
+        if (removeFaces.some((h) => h.name === name)) {
+          closing.Append_1(face);
+          found++;
+        }
+      }
+      if (found === 0)
+        throw new RegenError("QUERY_NO_MATCH", "Shell: no faces matched on a single body");
+
+      const op = scope.add(new oc.BRepOffsetAPI_MakeThickSolid());
+      const progress = scope.add(new oc.Message_ProgressRange_1());
+      // negative offset hollows inward, leaving walls of `thickness`
+      op.MakeThickSolidByJoin(
+        body.shape,
+        closing,
+        -Math.abs(thickness),
+        1e-3,
+        oc.BRepOffset_Mode.BRepOffset_Skin as never,
+        false,
+        false,
+        oc.GeomAbs_JoinType.GeomAbs_Arc as never,
+        false,
+        progress,
+      );
+      const progress2 = scope.add(new oc.Message_ProgressRange_1());
+      op.Build(progress2);
+      if (!op.IsDone())
+        throw new RegenError(
+          "KERNEL_FAILURE",
+          `Shell of ${thickness.toFixed(2)}mm failed — wall thickness may exceed the part size`,
+          removeFaces.map((h) => h.name),
+        );
+      const shape = op.Shape();
+      const faces = propagateFaceNames(oc, op as BRepBuilderAPI_MakeShape, [body.faces], shape);
+      faces.fillUnnamed(owner);
+      this.replaceBody(bodyIdx, { name: body.name, shape, faces });
+    } finally {
+      scope.dispose();
+    }
+  }
+
+  transformBodies(
+    owner: FeatureId,
+    bodies: EntityHit[],
+    transforms: BodyTransform[],
+    merge: boolean,
+  ): void {
+    const oc = this.oc;
+    const sources = this.bodies
+      .map((b, idx) => ({ b, idx }))
+      .filter(({ b }) => bodies.some((h) => h.name === b.name));
+    if (sources.length === 0)
+      throw new RegenError("QUERY_NO_MATCH", "Pattern/mirror: no bodies matched");
+
+    for (const { b, idx } of sources) {
+      let current = b;
+      let copyIndex = 0;
+      for (const spec of transforms) {
+        const scope = new Scope();
+        try {
+          const trsf = scope.add(new oc.gp_Trsf_1());
+          if (spec.kind === "translate") {
+            trsf.SetTranslation_1(scope.add(new oc.gp_Vec_4(...spec.offset)));
+          } else if (spec.kind === "rotate") {
+            const ax = scope.add(
+              new oc.gp_Ax1_2(
+                scope.add(new oc.gp_Pnt_3(...spec.axisPoint)),
+                scope.add(new oc.gp_Dir_4(...spec.axisDir)),
+              ),
+            );
+            trsf.SetRotation_1(ax, (spec.angleDeg * Math.PI) / 180);
+          } else {
+            const ax2 = scope.add(
+              new oc.gp_Ax2_3(
+                scope.add(new oc.gp_Pnt_3(...spec.planePoint)),
+                scope.add(new oc.gp_Dir_4(...spec.planeNormal)),
+              ),
+            );
+            trsf.SetMirror_3(ax2);
+          }
+          const xform = scope.add(new oc.BRepBuilderAPI_Transform_2(b.shape, trsf, true));
+          const copy = xform.Shape();
+
+          if (merge) {
+            // fuse copy into the (accumulating) source body
+            const progress = scope.add(new oc.Message_ProgressRange_1());
+            const fuse = scope.add(new oc.BRepAlgoAPI_Fuse_3(current.shape, copy, progress));
+            const progress2 = scope.add(new oc.Message_ProgressRange_1());
+            fuse.Build(progress2);
+            if (!fuse.IsDone())
+              throw new RegenError("BOOLEAN_FAILED", "Pattern fuse failed in the kernel");
+            const result = fuse.Shape();
+            // copies get positional names under the pattern feature; the
+            // original instance keeps its semantic names via propagation
+            const faces = propagateFaceNames(
+              oc,
+              fuse as BRepBuilderAPI_MakeShape,
+              [current.faces],
+              result,
+            );
+            faces.fillUnnamed(`${owner}:${copyIndex}`);
+            this.replaceBody(idx, { name: current.name, shape: result, faces });
+            current = this.bodies[idx]!;
+          } else {
+            const faces = new FaceNameMap(oc, copy);
+            faces.fillUnnamed(`${owner}:${copyIndex}`);
+            this.pushBody({ name: `${owner}/body:${copyIndex}`, shape: copy, faces });
+          }
+          copyIndex++;
+        } finally {
+          scope.dispose();
+        }
+      }
+    }
+  }
+
+  booleanBodies(
+    owner: FeatureId,
+    target: EntityHit,
+    tool: EntityHit,
+    op: "union" | "subtract" | "intersect",
+  ): void {
+    const oc = this.oc;
+    const targetIdx = this.bodies.findIndex((b) => b.name === target.name);
+    const toolIdx = this.bodies.findIndex((b) => b.name === tool.name);
+    if (targetIdx < 0 || toolIdx < 0)
+      throw new RegenError("QUERY_NO_MATCH", "Boolean: target or tool body not found");
+    if (targetIdx === toolIdx)
+      throw new RegenError("INVALID_PARAMS", "Boolean: target and tool are the same body");
+    const targetBody = this.bodies[targetIdx]!;
+    const toolBody = this.bodies[toolIdx]!;
+    const scope = new Scope();
+    try {
+      const progress = scope.add(new oc.Message_ProgressRange_1());
+      const bop = scope.add(
+        op === "union"
+          ? new oc.BRepAlgoAPI_Fuse_3(targetBody.shape, toolBody.shape, progress)
+          : op === "subtract"
+            ? new oc.BRepAlgoAPI_Cut_3(targetBody.shape, toolBody.shape, progress)
+            : new oc.BRepAlgoAPI_Common_3(targetBody.shape, toolBody.shape, progress),
+      );
+      const progress2 = scope.add(new oc.Message_ProgressRange_1());
+      bop.Build(progress2);
+      if (!bop.IsDone())
+        throw new RegenError("BOOLEAN_FAILED", `Boolean ${op} failed in the kernel`);
+      const result = bop.Shape();
+      const faces = propagateFaceNames(
+        oc,
+        bop as BRepBuilderAPI_MakeShape,
+        [targetBody.faces, toolBody.faces],
+        result,
+      );
+      faces.fillUnnamed(owner);
+      this.replaceBody(targetIdx, { name: targetBody.name, shape: result, faces });
+      // the tool body is consumed
+      this.retired.push(toolBody.faces);
+      this.bodies.splice(this.bodies.findIndex((b) => b.name === tool.name), 1);
+      this.edgeCache = null;
+    } finally {
+      scope.dispose();
     }
   }
 

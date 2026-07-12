@@ -95,8 +95,18 @@ export function Viewport() {
 
         // committed entities in draft color
         const draft = sampleSketchEntitiesFromBasis(s.basis, s.entities);
-        // live preview from pending point → cursor
+        // live preview from pending point → cursor; selected entities also
+        // render in the preview (highlight) color
         let preview: Float32Array | null = null;
+        const previewParts: Float32Array[] = [];
+        if (s.selectedIds.length > 0) {
+          previewParts.push(
+            sampleSketchEntitiesFromBasis(
+              s.basis,
+              s.entities.filter((e) => s.selectedIds.includes(e.id)),
+            ),
+          );
+        }
         if (s.pending && s.cursor) {
           const previewEntity: SketchEntity | null =
             s.tool === "line"
@@ -114,7 +124,17 @@ export function Viewport() {
                       ),
                     }
                   : null;
-          if (previewEntity) preview = sampleSketchEntitiesFromBasis(s.basis, [previewEntity]);
+          if (previewEntity) previewParts.push(sampleSketchEntitiesFromBasis(s.basis, [previewEntity]));
+        }
+        if (previewParts.length > 0) {
+          // concatenate all preview soups into one buffer
+          const total = previewParts.reduce((n, p) => n + p.length, 0);
+          preview = new Float32Array(total);
+          let off = 0;
+          for (const p of previewParts) {
+            preview.set(p, off);
+            off += p.length;
+          }
         }
         const cursor3 = s.cursor
           ? ([

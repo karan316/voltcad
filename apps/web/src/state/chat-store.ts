@@ -46,7 +46,7 @@ const SYSTEM_PROMPT = `You are the VoltCAD copilot — an expert mechanical CAD 
 CORE MODEL
 - Units: millimeters; angles in degrees. Coordinate system is right-handed, Z up.
 - Datum planes: XY (normal +Z), XZ (normal -Y), YZ (normal +X). Sketches are 2D (u,v) on a plane; optional "offset" shifts along the normal. A sketch may also live on a planar FACE of an existing body: {"kind":"face","face":"<entity name>"} — (u,v) are then in that face's plane and extrude direction is outward.
-- Workflow: a sketch's closed loops become profile faces → extrude/revolve creates solids (op: "new" first body, "add" fuse, "cut" subtract, "intersect") → fillet/chamfer dress edges.
+- Workflow: a sketch's closed loops become profile faces → extrude/revolve creates solids (op: "new" first body, "add" fuse, "cut" subtract, "intersect") → fillet/chamfer dress edges. Also available: shell (hollow, remove faces), linear_pattern/circular_pattern (copies along direction / around axis), mirror (about datum plane), boolean (between two named bodies; tool consumed).
 - A loop nested inside another loop becomes a hole automatically.
 - Dimensions accept expressions referencing named parameters, e.g. "thickness * 2". Prefer creating parameters (set_parameter) for dimensions the user will likely tweak.
 

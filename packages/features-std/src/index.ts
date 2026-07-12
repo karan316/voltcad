@@ -3,8 +3,27 @@ import { sketchFeature } from "./sketch.ts";
 import { extrudeFeature, revolveFeature } from "./extrude.ts";
 import { chamferFeature, filletFeature } from "./fillet.ts";
 import { importFeature } from "./import.ts";
+import { shellFeature } from "./shell.ts";
+import {
+  booleanFeature,
+  circularPatternFeature,
+  linearPatternFeature,
+  mirrorFeature,
+} from "./pattern.ts";
 
-export { sketchFeature, extrudeFeature, revolveFeature, filletFeature, chamferFeature, importFeature };
+export {
+  sketchFeature,
+  extrudeFeature,
+  revolveFeature,
+  filletFeature,
+  chamferFeature,
+  importFeature,
+  shellFeature,
+  linearPatternFeature,
+  circularPatternFeature,
+  mirrorFeature,
+  booleanFeature,
+};
 
 /** Build a registry containing all standard features. */
 export function createStandardRegistry(): FeatureRegistry {
@@ -14,5 +33,10 @@ export function createStandardRegistry(): FeatureRegistry {
     .register(revolveFeature)
     .register(filletFeature)
     .register(chamferFeature)
-    .register(importFeature);
+    .register(importFeature)
+    .register(shellFeature)
+    .register(linearPatternFeature)
+    .register(circularPatternFeature)
+    .register(mirrorFeature)
+    .register(booleanFeature);
 }

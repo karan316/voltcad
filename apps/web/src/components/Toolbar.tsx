@@ -211,6 +211,7 @@ function SketchToolbar() {
   const plane = useSketchStore((s) => s.plane);
   const setPlane = useSketchStore((s) => s.setPlane);
   const entityCount = useSketchStore((s) => s.entities.length);
+  const dof = useSketchStore((s) => s.dof);
   const finish = useSketchStore((s) => s.finish);
   const cancel = useSketchStore((s) => s.cancel);
 
@@ -256,6 +257,15 @@ function SketchToolbar() {
         </span>
       )}
       {entityCount > 0 && <span className="micro-label px-1.5">{entityCount} entities</span>}
+      {dof !== null && (
+        <span
+          className="micro-label px-1.5"
+          data-tip="Degrees of freedom — 0 means fully constrained"
+          style={{ color: dof === 0 ? "var(--ok)" : "var(--text-muted)" }}
+        >
+          {dof === 0 ? "fully constrained" : `${dof} dof`}
+        </span>
+      )}
       <div className="tool-sep" />
       <button
         className="tool-btn"
