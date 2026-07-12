@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Download, Moon, Settings2, Sun, Upload } from "lucide-react";
 import { newFeatureId } from "@voltcad/model-api";
 import { useEditorStore } from "../state/document-store.ts";
@@ -14,6 +14,19 @@ export function TopBar(props: { onOpenSettings: () => void }) {
   const theme = useThemeStore((s) => s.theme);
   const toggleTheme = useThemeStore((s) => s.toggle);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Debounced busy indicator: most regens finish in <100ms thanks to the
+  // incremental cache — flashing "regenerating" for one frame is just noise.
+  // Only surface the busy state when the kernel is genuinely working.
+  const [showBusy, setShowBusy] = useState(false);
+  useEffect(() => {
+    if (!regenBusy) {
+      setShowBusy(false);
+      return;
+    }
+    const timer = setTimeout(() => setShowBusy(true), 250);
+    return () => clearTimeout(timer);
+  }, [regenBusy]);
 
   const onImportFile = async (file: File) => {
     const text = await file.text();
@@ -34,13 +47,13 @@ export function TopBar(props: { onOpenSettings: () => void }) {
       ? "loading kernel"
       : kernelStatus === "error"
         ? "kernel error"
-        : regenBusy
+        : showBusy
           ? "regenerating"
           : "live";
   const statusColor =
     kernelStatus === "error"
       ? "var(--err)"
-      : regenBusy || kernelStatus === "loading"
+      : showBusy || kernelStatus === "loading"
         ? "var(--status)"
         : "var(--ok)";
 
@@ -49,12 +62,12 @@ export function TopBar(props: { onOpenSettings: () => void }) {
       <span
         className="status-pill"
         style={{
-          background: kernelStatus === "error" ? "rgb(214 69 69 / 0.12)" : regenBusy || kernelStatus === "loading" ? "rgb(232 89 12 / 0.12)" : "var(--ok-bg)",
+          background: kernelStatus === "error" ? "rgb(214 69 69 / 0.12)" : showBusy || kernelStatus === "loading" ? "rgb(232 89 12 / 0.12)" : "var(--ok-bg)",
           color: statusColor,
         }}
       >
         <span
-          className={`inline-block h-1.5 w-1.5 rounded-full ${regenBusy ? "animate-pulse" : ""}`}
+          className={`inline-block h-1.5 w-1.5 rounded-full ${showBusy ? "animate-pulse" : ""}`}
           style={{ background: statusColor }}
         />
         {statusLabel}
