@@ -85,7 +85,10 @@ export function ModelPanel() {
         {isBarHere && (
           <div
             draggable
-            className="group/bar flex cursor-grab items-center gap-2 py-0.5 active:cursor-grabbing"
+            // resting at the end of history: quiet gray, hover reveals it;
+            // actively rolling back: orange accent so the state is obvious
+            className="group/bar flex cursor-grab items-center gap-2 py-0.5 opacity-50 transition-opacity hover:opacity-100 active:cursor-grabbing data-[active=true]:opacity-100"
+            data-active={rollback !== undefined}
             data-tip="Rollback bar — drag to replay history up to a point"
             onDragStart={(e) => {
               e.dataTransfer.effectAllowed = "move";
@@ -97,9 +100,18 @@ export function ModelPanel() {
             }}
             onDoubleClick={() => setRollback(null)}
           >
-            <div className="h-[3px] flex-1 rounded-full" style={{ background: "var(--status)" }} />
-            <GripHorizontal size={11} style={{ color: "var(--status)" }} />
-            <div className="h-[3px] flex-1 rounded-full" style={{ background: "var(--status)" }} />
+            <div
+              className="h-px flex-1 rounded-full transition-colors"
+              style={{ background: rollback !== undefined ? "var(--status)" : "var(--border-strong)" }}
+            />
+            <GripHorizontal
+              size={11}
+              style={{ color: rollback !== undefined ? "var(--status)" : "var(--text-muted)" }}
+            />
+            <div
+              className="h-px flex-1 rounded-full transition-colors"
+              style={{ background: rollback !== undefined ? "var(--status)" : "var(--border-strong)" }}
+            />
           </div>
         )}
       </div>
