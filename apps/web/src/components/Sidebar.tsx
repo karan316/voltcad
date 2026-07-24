@@ -1,10 +1,9 @@
 import { MessageSquare, Layers } from "lucide-react";
 import { ChatPanel } from "./ChatPanel.tsx";
 import { ModelPanel } from "./ModelPanel.tsx";
-import { Logo } from "./Logo.tsx";
 import { useEditorStore } from "../state/document-store.ts";
 
-/** Left sidebar: floating glass panel with brand header + CHAT / MODEL tabs. */
+/** Left sidebar: docked panel with CHAT / MODEL tabs (brand lives in the header rail). */
 export function Sidebar(props: { onOpenSettings: () => void }) {
   const tab = useEditorStore((s) => s.sidebarTab);
   const setTab = useEditorStore((s) => s.setSidebarTab);
@@ -15,13 +14,8 @@ export function Sidebar(props: { onOpenSettings: () => void }) {
   );
 
   return (
-    <aside className="glass-panel z-10 flex w-80 shrink-0 flex-col overflow-hidden">
-      <div className="flex items-center gap-2.5 px-4 pt-4 pb-2">
-        <Logo size={22} />
-        <span className="text-[14px] font-bold tracking-[0.16em]">VOLTCAD</span>
-      </div>
-
-      <div className="flex items-center gap-4 border-b px-4" style={{ borderColor: "var(--border)" }}>
+    <aside className="flex h-full w-80 shrink-0 flex-col overflow-hidden">
+      <div className="flex items-center gap-4 border-b px-4 pt-2" style={{ borderColor: "var(--border)" }}>
         <TabButton
           icon={<MessageSquare size={12} />}
           label="Chat"

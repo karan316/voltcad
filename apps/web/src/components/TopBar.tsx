@@ -4,6 +4,7 @@ import { newFeatureId } from "@voltcad/model-api";
 import { useEditorStore } from "../state/document-store.ts";
 import { useThemeStore } from "../state/theme-store.ts";
 import { useCollabStore } from "../state/collab-store.ts";
+import { Logo } from "./Logo.tsx";
 import { putBlob } from "../lib/opfs.ts";
 import { pushRelayBlob } from "../lib/blob-sync.ts";
 
@@ -48,10 +49,11 @@ export function TopBar(props: { onOpenSettings: () => void }) {
   };
 
   return (
-    <div className="glass-panel flex h-11 items-center gap-2 px-3">
-      {/* spacer balancing the right-side buttons so the name stays centered;
-          hosts the quiet regen spinner */}
-      <div className="flex w-40 items-center">
+    <div className="flex h-11 items-center gap-2 px-3">
+      {/* brand + quiet regen spinner */}
+      <div className="flex w-56 items-center gap-2.5">
+        <Logo size={20} />
+        <span className="text-[13px] font-bold tracking-[0.16em]">VOLTCAD</span>
         {showBusy && (
           <Loader2
             size={13}

@@ -14,7 +14,7 @@ export function StatusBar() {
     selection.length > 0 && selection.every((x) => x.kind === "face");
 
   return (
-    <div className="glass-panel flex h-8 items-center gap-5 px-4 font-mono text-[10px]" style={{ color: "var(--text-muted)" }}>
+    <div className="flex h-8 items-center gap-5 px-4 font-mono text-[10px]" style={{ color: "var(--text-muted)" }}>
       <span className="min-w-0 flex-1 truncate">
         {kernelError ? (
           <span style={{ color: "var(--err)" }}>{kernelError}</span>
@@ -32,14 +32,14 @@ export function StatusBar() {
       </span>
       {massProps && (
         <>
-          <span data-tip="Volume">V {fmt(massProps.volume)}mm³</span>
-          <span data-tip="Surface area">A {fmt(massProps.surfaceArea)}mm²</span>
-          <span data-tip="Center of mass">
+          <span data-tip="Volume" data-tip-side="top">V {fmt(massProps.volume)}mm³</span>
+          <span data-tip="Surface area" data-tip-side="top">A {fmt(massProps.surfaceArea)}mm²</span>
+          <span data-tip="Center of mass" data-tip-side="top">
             com {massProps.centerOfMass.map((v) => v.toFixed(1)).join(" ")}
           </span>
         </>
       )}
-      <span data-tip="Regeneration time">{regenMs.toFixed(0)}ms</span>
+      <span data-tip="Regeneration time" data-tip-side="top">{regenMs.toFixed(0)}ms</span>
     </div>
   );
 }

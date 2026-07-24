@@ -59,36 +59,49 @@ function Editor() {
   }, [])
 
   return (
-    <div className="flex h-dvh w-dvw gap-3 overflow-hidden p-3" style={{ background: 'var(--bg)' }}>
-      <Sidebar onOpenSettings={() => setSettingsOpen(true)} />
+    <div className="flex h-dvh w-dvw flex-col overflow-hidden" style={{ background: 'var(--bg)' }}>
+      {/* docked header rail */}
+      <div className="dock-panel z-20 border-b" style={{ borderColor: 'var(--border)' }}>
+        <TopBar onOpenSettings={() => setSettingsOpen(true)} />
+      </div>
 
-      <main className="relative min-w-0 flex-1 overflow-hidden rounded-xl" style={{ boxShadow: 'var(--shadow-panel)' }}>
-        <Viewport />
-        <ViewportOverlays />
-
-        {/* floating chrome over the viewport */}
-        <div className="pointer-events-none absolute inset-0 flex flex-col p-3">
-          <div className="pointer-events-auto">
-            <TopBar onOpenSettings={() => setSettingsOpen(true)} />
-          </div>
-          <div className="mt-3 flex justify-center">
-            <div className="pointer-events-auto flex flex-col items-center">
-              <Toolbar />
-              <DimensionInput />
-              <ConstraintBar />
-            </div>
-          </div>
-          <div className="mt-1 flex justify-end">
-            <ViewCube />
-          </div>
-          <div className="flex-1" />
-          <div className="pointer-events-auto">
-            <StatusBar />
-          </div>
+      <div className="flex min-h-0 flex-1">
+        {/* docked sidebar */}
+        <div className="dock-panel z-10 border-r" style={{ borderColor: 'var(--border)' }}>
+          <Sidebar onOpenSettings={() => setSettingsOpen(true)} />
         </div>
 
-        <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
-      </main>
+        {/* full-bleed viewport */}
+        <main className="relative min-w-0 flex-1 overflow-hidden">
+          <Viewport />
+          <ViewportOverlays />
+
+          {/* floating instruments over the viewport */}
+          <div className="pointer-events-none absolute inset-0 flex flex-col p-3">
+            <div className="flex justify-center">
+              <div className="pointer-events-auto flex flex-col items-center">
+                <Toolbar />
+                <DimensionInput />
+                <ConstraintBar />
+              </div>
+            </div>
+            <div className="mt-1 flex justify-end">
+              <ViewCube />
+            </div>
+            <div className="flex-1" />
+          </div>
+
+          {/* docked status strip */}
+          <div
+            className="dock-panel absolute inset-x-0 bottom-0 border-t"
+            style={{ borderColor: 'var(--border)' }}
+          >
+            <StatusBar />
+          </div>
+
+          <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+        </main>
+      </div>
     </div>
   )
 }
