@@ -17,6 +17,7 @@ export function ConstraintBar() {
   const solveError = useSketchStore((s) => s.solveError);
   const addConstraint = useSketchStore((s) => s.addConstraint);
   const removeConstraint = useSketchStore((s) => s.removeConstraint);
+  const toggleConstruction = useSketchStore((s) => s.toggleConstruction);
   const [dimDraft, setDimDraft] = useState<{ type: "distance" | "radius"; value: string } | null>(
     null,
   );
@@ -83,6 +84,12 @@ export function ConstraintBar() {
       tip: "Radius (circle / arc)",
       enabled: rounds.length === 1 && selected.length === 1,
       run: () => setDimDraft({ type: "radius", value: String(measure("radius")) }),
+    },
+    {
+      label: "▢",
+      tip: "Toggle construction geometry (guides, no profile)",
+      enabled: selected.length > 0,
+      run: toggleConstruction,
     },
   ];
 

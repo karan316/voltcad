@@ -18,6 +18,8 @@ import {
   type Expression,
   type ExtrudeOptions,
   type FeatureId,
+  type LoftOptions,
+  type MateOptions,
   type ModelContext,
   type PlaneBasis,
   type RevolveOptions,
@@ -25,9 +27,20 @@ import {
   type SketchDisplay,
   type SketchEntity,
   type SketchPlane,
+  type SweepOptions,
 } from "@voltcad/model-api";
-import { FaceNameMap, edgeNameFromFaces, listToArray, propagateFaceNames, type NamedBody } from "./naming.ts";
-import { buildProfiles, type BuiltProfile } from "./sketch-builder.ts";
+import {
+  FaceNameMap,
+  edgeNameFromFaces,
+  listToArray,
+  propagateFaceNames,
+  type NamedBody,
+} from "./naming.ts";
+import {
+  buildPathWire,
+  buildProfiles,
+  type BuiltProfile,
+} from "./sketch-builder.ts";
 import { Scope } from "./scope.ts";
 
 type OC = OpenCascadeInstance;
@@ -47,6 +60,8 @@ export interface CtxSnapshot {
   profiles: [string, ProfileRecord[]][];
   handles: ProfileRecord[];
   sketchDisplays: SketchDisplay[];
+  datums: [string, PlaneBasis][];
+  sketchData: [string, { basis: PlaneBasis; entities: SketchEntity[] }][];
 }
 
 /**
@@ -63,9 +78,18 @@ export class OcModelContext implements ModelContext {
 
   private profiles = new Map<string, ProfileRecord[]>();
   private handles: ProfileRecord[] = []; // ShapeHandle → record
+  /** Datum planes registered by datum features (referencable by sketches). */
+  private datums = new Map<string, PlaneBasis>();
+  /** Raw sketch geometry per feature — sweep paths need the open chains. */
+  private sketchData = new Map<
+    string,
+    { basis: PlaneBasis; entities: SketchEntity[] }
+  >();
   /** Cached per-body edge adjacency (edge name → edge), rebuilt after edits. */
-  private edgeCache: Map<string, { name: string; edge: TopoDS_Edge; bodyIdx: number }[]> | null =
-    null;
+  private edgeCache: Map<
+    string,
+    { name: string; edge: TopoDS_Edge; bodyIdx: number }[]
+  > | null = null;
 
   constructor(
     private oc: OC,
@@ -83,6 +107,8 @@ export class OcModelContext implements ModelContext {
       profiles: [...this.profiles.entries()].map(([k, v]) => [k, [...v]]),
       handles: [...this.handles],
       sketchDisplays: [...this.sketchDisplays],
+      datums: [...this.datums.entries()],
+      sketchData: [...this.sketchData.entries()],
     };
   }
 
@@ -91,6 +117,8 @@ export class OcModelContext implements ModelContext {
     this.profiles = new Map(snap.profiles.map(([k, v]) => [k, [...v]]));
     this.handles = [...snap.handles];
     this.sketchDisplays = [...snap.sketchDisplays];
+    this.datums = new Map(snap.datums);
+    this.sketchData = new Map(snap.sketchData);
     this.edgeCache = null;
   }
 
@@ -100,6 +128,8 @@ export class OcModelContext implements ModelContext {
     this.sketchDisplays = [];
     this.profiles.clear();
     this.handles = [];
+    this.datums.clear();
+    this.sketchData.clear();
     this.retired = [];
     this.edgeCache = null;
   }
@@ -112,11 +142,16 @@ export class OcModelContext implements ModelContext {
 
   // ------------------------------------------------------------------- sketch
 
-  buildProfile(owner: FeatureId, plane: SketchPlane, entities: SketchEntity[]): ShapeHandle[] {
+  buildProfile(
+    owner: FeatureId,
+    plane: SketchPlane,
+    entities: SketchEntity[],
+  ): ShapeHandle[] {
     const basis = this.basisForPlane(plane);
     const built = buildProfiles(this.oc, basis, entities);
     const records: ProfileRecord[] = built.map((b) => ({ ...b, basis }));
     this.profiles.set(owner, records);
+    this.sketchData.set(owner, { basis, entities });
     this.sketchDisplays.push({
       featureId: owner,
       positions: sampleSketchEntitiesFromBasis(basis, entities),
@@ -124,11 +159,21 @@ export class OcModelContext implements ModelContext {
     return records.map((r) => (this.handles.push(r) - 1) as ShapeHandle);
   }
 
-  /** Resolve a sketch plane (datum or planar face) to a world basis. */
+  /** Resolve a sketch plane (datum, planar face, datum feature) to a world basis. */
   basisForPlane(plane: SketchPlane): PlaneBasis {
     if (plane.kind === "datum") {
-      const offset = plane.offset !== undefined ? this.evaluate(plane.offset) : 0;
+      const offset =
+        plane.offset !== undefined ? this.evaluate(plane.offset) : 0;
       return planeBasis(plane, offset);
+    }
+    if (plane.kind === "datumFeature") {
+      const basis = this.datums.get(plane.feature);
+      if (!basis)
+        throw new RegenError(
+          "QUERY_NO_MATCH",
+          `Datum plane feature "${plane.feature}" not found earlier in the history`,
+        );
+      return basis;
     }
     const basis = this.faceBasis(plane.face);
     if (!basis)
@@ -138,6 +183,33 @@ export class OcModelContext implements ModelContext {
         [plane.face],
       );
     return basis;
+  }
+
+  planeBasisOf(plane: SketchPlane): PlaneBasis {
+    return this.basisForPlane(plane);
+  }
+
+  defineDatumPlane(owner: FeatureId, basis: PlaneBasis): void {
+    this.datums.set(owner, basis);
+    // viewport hint: draw the plane as a bordered square (80mm half-extent)
+    const h = 40;
+    const corners: [number, number][] = [
+      [-h, -h],
+      [h, -h],
+      [h, h],
+      [-h, h],
+    ];
+    const segs: number[] = [];
+    for (let i = 0; i < 4; i++) {
+      segs.push(
+        ...to3D(basis, corners[i]!),
+        ...to3D(basis, corners[(i + 1) % 4]!),
+      );
+    }
+    this.sketchDisplays.push({
+      featureId: owner,
+      positions: new Float32Array(segs),
+    });
   }
 
   /** Locate any named entity's shape (body, face, or edge) for measurement. */
@@ -164,7 +236,8 @@ export class OcModelContext implements ModelContext {
         try {
           const typedFace = oc.TopoDS.Face_1(face);
           const surf = scope.add(new oc.BRepAdaptor_Surface_2(typedFace, true));
-          if (surf.GetType() !== oc.GeomAbs_SurfaceType.GeomAbs_Plane) return null;
+          if (surf.GetType() !== oc.GeomAbs_SurfaceType.GeomAbs_Plane)
+            return null;
           const pln = scope.add(surf.Plane());
           const loc = scope.add(pln.Location());
           const xAxis = scope.add(pln.XAxis());
@@ -196,7 +269,9 @@ export class OcModelContext implements ModelContext {
     const records = this.profiles.get(sketch) ?? [];
     return records.map((r) => {
       const existing = this.handles.indexOf(r);
-      return (existing >= 0 ? existing : this.handles.push(r) - 1) as ShapeHandle;
+      return (
+        existing >= 0 ? existing : this.handles.push(r) - 1
+      ) as ShapeHandle;
     });
   }
 
@@ -214,7 +289,9 @@ export class OcModelContext implements ModelContext {
         return this.allEntities().filter(
           (h) =>
             h.kind === query.entity &&
-            h.name.split("|").some((part) => part.startsWith(`${query.feature}/`)),
+            h.name
+              .split("|")
+              .some((part) => part.startsWith(`${query.feature}/`)),
         );
       case "all":
         return this.allEntities().filter((h) => h.kind === query.entity);
@@ -234,7 +311,9 @@ export class OcModelContext implements ModelContext {
             c.n++;
             counts.set(h.name, c);
           }
-        return [...counts.values()].filter((c) => c.n === lists.length).map((c) => c.hit);
+        return [...counts.values()]
+          .filter((c) => c.n === lists.length)
+          .map((c) => c.hit);
       }
     }
   }
@@ -243,7 +322,8 @@ export class OcModelContext implements ModelContext {
     const out: EntityHit[] = [];
     for (const body of this.bodies) {
       out.push({ name: body.name, kind: "body" });
-      for (const { name } of body.faces.entries()) out.push({ name, kind: "face" });
+      for (const { name } of body.faces.entries())
+        out.push({ name, kind: "face" });
     }
     for (const perBody of this.edgeIndex().values())
       for (const { name } of perBody) out.push({ name, kind: "edge" });
@@ -254,20 +334,29 @@ export class OcModelContext implements ModelContext {
    * Derived edge names: each edge is named by its adjacent faces ("A|B").
    * Rebuilt lazily after any body mutation.
    */
-  private edgeIndex(): Map<string, { name: string; edge: TopoDS_Edge; bodyIdx: number }[]> {
+  private edgeIndex(): Map<
+    string,
+    { name: string; edge: TopoDS_Edge; bodyIdx: number }[]
+  > {
     if (this.edgeCache) return this.edgeCache;
     const oc = this.oc;
-    const index = new Map<string, { name: string; edge: TopoDS_Edge; bodyIdx: number }[]>();
+    const index = new Map<
+      string,
+      { name: string; edge: TopoDS_Edge; bodyIdx: number }[]
+    >();
     this.bodies.forEach((body, bodyIdx) => {
       const scope = new Scope();
-      const map = scope.add(new oc.TopTools_IndexedDataMapOfShapeListOfShape_1());
+      const map = scope.add(
+        new oc.TopTools_IndexedDataMapOfShapeListOfShape_1(),
+      );
       oc.TopExp.MapShapesAndAncestors(
         body.shape,
         oc.TopAbs_ShapeEnum.TopAbs_EDGE as TopAbs_ShapeEnum,
         oc.TopAbs_ShapeEnum.TopAbs_FACE as TopAbs_ShapeEnum,
         map,
       );
-      const perBody: { name: string; edge: TopoDS_Edge; bodyIdx: number }[] = [];
+      const perBody: { name: string; edge: TopoDS_Edge; bodyIdx: number }[] =
+        [];
       for (let i = 1; i <= map.Extent(); i++) {
         const edge = oc.TopoDS.Edge_1(map.FindKey(i));
         const faceNames = listToArray(oc, map.FindFromIndex(i)).map(
@@ -299,11 +388,16 @@ export class OcModelContext implements ModelContext {
 
   // ----------------------------------------------------------------- features
 
-  extrude(owner: FeatureId, profiles: ShapeHandle[], options: ExtrudeOptions): void {
+  extrude(
+    owner: FeatureId,
+    profiles: ShapeHandle[],
+    options: ExtrudeOptions,
+  ): void {
     const oc = this.oc;
     for (const handle of profiles) {
       const record = this.handles[handle];
-      if (!record) throw new RegenError("KERNEL_FAILURE", "Invalid profile handle");
+      if (!record)
+        throw new RegenError("KERNEL_FAILURE", "Invalid profile handle");
       const scope = new Scope();
       try {
         const [nx, ny, nz] = record.basis.normal;
@@ -315,9 +409,13 @@ export class OcModelContext implements ModelContext {
           // shift the profile back by d/2 so the sweep is centered on the plane
           const trsf = scope.add(new oc.gp_Trsf_1());
           trsf.SetTranslation_1(
-            scope.add(new oc.gp_Vec_4((-nx * d) / 2, (-ny * d) / 2, (-nz * d) / 2)),
+            scope.add(
+              new oc.gp_Vec_4((-nx * d) / 2, (-ny * d) / 2, (-nz * d) / 2),
+            ),
           );
-          const xform = scope.add(new oc.BRepBuilderAPI_Transform_2(record.face, trsf, true));
+          const xform = scope.add(
+            new oc.BRepBuilderAPI_Transform_2(record.face, trsf, true),
+          );
           baseFace = oc.TopoDS.Face_1(xform.Shape());
           // re-associate profile edges with their transformed copies so
           // Generated() lookups (side-face naming) still work
@@ -328,9 +426,14 @@ export class OcModelContext implements ModelContext {
         }
 
         const vec = scope.add(new oc.gp_Vec_4(nx * d, ny * d, nz * d));
-        const prism = scope.add(new oc.BRepPrimAPI_MakePrism_1(baseFace, vec, true, true));
+        const prism = scope.add(
+          new oc.BRepPrimAPI_MakePrism_1(baseFace, vec, true, true),
+        );
         if (!prism.IsDone())
-          throw new RegenError("KERNEL_FAILURE", "Extrude failed in the kernel");
+          throw new RegenError(
+            "KERNEL_FAILURE",
+            "Extrude failed in the kernel",
+          );
         const shape = prism.Shape();
 
         // --- persistent naming ---
@@ -352,11 +455,16 @@ export class OcModelContext implements ModelContext {
     }
   }
 
-  revolve(owner: FeatureId, profiles: ShapeHandle[], options: RevolveOptions): void {
+  revolve(
+    owner: FeatureId,
+    profiles: ShapeHandle[],
+    options: RevolveOptions,
+  ): void {
     const oc = this.oc;
     for (const handle of profiles) {
       const record = this.handles[handle];
-      if (!record) throw new RegenError("KERNEL_FAILURE", "Invalid profile handle");
+      if (!record)
+        throw new RegenError("KERNEL_FAILURE", "Invalid profile handle");
       const scope = new Scope();
       try {
         // axis: sketch-plane coordinates → world coordinates via the basis
@@ -378,9 +486,14 @@ export class OcModelContext implements ModelContext {
           ),
         );
         const angleRad = (options.angle * Math.PI) / 180;
-        const revol = scope.add(new oc.BRepPrimAPI_MakeRevol_1(record.face, ax, angleRad, true));
+        const revol = scope.add(
+          new oc.BRepPrimAPI_MakeRevol_1(record.face, ax, angleRad, true),
+        );
         if (!revol.IsDone())
-          throw new RegenError("KERNEL_FAILURE", "Revolve failed in the kernel");
+          throw new RegenError(
+            "KERNEL_FAILURE",
+            "Revolve failed in the kernel",
+          );
         const shape = revol.Shape();
 
         const faces = new FaceNameMap(oc, shape);
@@ -404,6 +517,87 @@ export class OcModelContext implements ModelContext {
     this.filletOrChamfer(owner, edges, radius, "fillet");
   }
 
+  sweep(
+    owner: FeatureId,
+    profiles: ShapeHandle[],
+    pathSketch: FeatureId,
+    options: SweepOptions,
+  ): void {
+    const oc = this.oc;
+    const path = this.sketchData.get(pathSketch);
+    if (!path)
+      throw new RegenError(
+        "QUERY_NO_MATCH",
+        `Sweep path sketch "${pathSketch}" not found earlier in the history`,
+      );
+    const spine = buildPathWire(oc, path.basis, path.entities);
+    for (const handle of profiles) {
+      const record = this.handles[handle];
+      if (!record)
+        throw new RegenError("KERNEL_FAILURE", "Invalid profile handle");
+      const scope = new Scope();
+      try {
+        const pipe = scope.add(
+          new oc.BRepOffsetAPI_MakePipe_1(spine, record.face),
+        );
+        const progress = scope.add(new oc.Message_ProgressRange_1());
+        pipe.Build(progress);
+        if (!pipe.IsDone())
+          throw new RegenError(
+            "KERNEL_FAILURE",
+            "Sweep failed — the profile may self-intersect along the path (e.g. bend radius smaller than profile size)",
+          );
+        const shape = pipe.Shape();
+        const faces = new FaceNameMap(oc, shape);
+        // pipe face history is unreliable across kernels — positional names
+        faces.fillUnnamed(owner);
+        this.applyBooleanOp(owner, shape, faces, options.op);
+      } finally {
+        scope.dispose();
+      }
+    }
+  }
+
+  loft(owner: FeatureId, sections: FeatureId[], options: LoftOptions): void {
+    const oc = this.oc;
+    if (sections.length < 2)
+      throw new RegenError(
+        "INVALID_PARAMS",
+        "Loft needs at least two section sketches",
+      );
+    const scope = new Scope();
+    try {
+      const thru = scope.add(
+        new oc.BRepOffsetAPI_ThruSections(true, options.ruled ?? false, 1e-6),
+      );
+      for (const sectionId of sections) {
+        const records = this.profiles.get(sectionId);
+        if (!records || records.length === 0)
+          throw new RegenError(
+            "OPEN_PROFILE",
+            `Loft section sketch "${sectionId}" has no closed profile`,
+          );
+        // one wire per section: the outer boundary of its first profile
+        const wire = oc.BRepTools.OuterWire(records[0]!.face);
+        thru.AddWire(wire);
+      }
+      thru.CheckCompatibility(true);
+      const progress = scope.add(new oc.Message_ProgressRange_1());
+      thru.Build(progress);
+      if (!thru.IsDone())
+        throw new RegenError(
+          "KERNEL_FAILURE",
+          "Loft failed — sections may be incompatible (crossing or degenerate)",
+        );
+      const shape = thru.Shape();
+      const faces = new FaceNameMap(oc, shape);
+      faces.fillUnnamed(owner);
+      this.applyBooleanOp(owner, shape, faces, options.op);
+    } finally {
+      scope.dispose();
+    }
+  }
+
   chamfer(owner: FeatureId, edges: EntityHit[], distance: number): void {
     this.filletOrChamfer(owner, edges, distance, "chamfer");
   }
@@ -420,11 +614,17 @@ export class OcModelContext implements ModelContext {
           : scope.add(new oc.IGESControl_Reader_1());
       const status = reader.ReadFile(path);
       if (status !== oc.IFSelect_ReturnStatus.IFSelect_RetDone)
-        throw new RegenError("KERNEL_FAILURE", `Failed to parse ${format.toUpperCase()} file`);
+        throw new RegenError(
+          "KERNEL_FAILURE",
+          `Failed to parse ${format.toUpperCase()} file`,
+        );
       const progress = scope.add(new oc.Message_ProgressRange_1());
       reader.TransferRoots(progress);
       if (reader.NbShapes() === 0)
-        throw new RegenError("KERNEL_FAILURE", `${format.toUpperCase()} file contains no shapes`);
+        throw new RegenError(
+          "KERNEL_FAILURE",
+          `${format.toUpperCase()} file contains no shapes`,
+        );
       const shape = reader.OneShape();
 
       // each solid becomes its own body; loose shells/faces become one body
@@ -465,7 +665,10 @@ export class OcModelContext implements ModelContext {
     const oc = this.oc;
     const grouped = this.edgesByBody(edges);
     if (grouped.size === 0)
-      throw new RegenError("QUERY_NO_MATCH", `${kind}: selected edges no longer exist`);
+      throw new RegenError(
+        "QUERY_NO_MATCH",
+        `${kind}: selected edges no longer exist`,
+      );
     const nameByEdge = new Map<TopoDS_Edge, string>();
     for (const perBody of this.edgeIndex().values())
       for (const rec of perBody) nameByEdge.set(rec.edge, rec.name);
@@ -485,8 +688,15 @@ export class OcModelContext implements ModelContext {
             : scope.add(new oc.BRepFilletAPI_MakeChamfer(body.shape));
         for (const e of bodyEdges) {
           if (kind === "fillet")
-            (op as InstanceType<OC["BRepFilletAPI_MakeFillet"]>).Add_2(value, e);
-          else (op as InstanceType<OC["BRepFilletAPI_MakeChamfer"]>).Add_2(value, e);
+            (op as InstanceType<OC["BRepFilletAPI_MakeFillet"]>).Add_2(
+              value,
+              e,
+            );
+          else
+            (op as InstanceType<OC["BRepFilletAPI_MakeChamfer"]>).Add_2(
+              value,
+              e,
+            );
         }
         const progress = scope.add(new oc.Message_ProgressRange_1());
         op.Build(progress);
@@ -500,7 +710,12 @@ export class OcModelContext implements ModelContext {
 
         // survivors + kernel history first, then name the new blend faces
         // after the edge they replaced ("fil_x/face:capA|sideB")
-        const faces = propagateFaceNames(oc, op as BRepBuilderAPI_MakeShape, [body.faces], shape);
+        const faces = propagateFaceNames(
+          oc,
+          op as BRepBuilderAPI_MakeShape,
+          [body.faces],
+          shape,
+        );
         for (const e of bodyEdges) {
           const edgeName = nameByEdge.get(e) ?? "edge";
           for (const g of listToArray(oc, op.Generated(e)))
@@ -524,7 +739,10 @@ export class OcModelContext implements ModelContext {
       removeFaces.some((h) => b.faces.entries().some((e) => e.name === h.name)),
     );
     if (bodyIdx < 0)
-      throw new RegenError("QUERY_NO_MATCH", "Shell: selected faces no longer exist");
+      throw new RegenError(
+        "QUERY_NO_MATCH",
+        "Shell: selected faces no longer exist",
+      );
     const body = this.bodies[bodyIdx]!;
     const scope = new Scope();
     try {
@@ -537,7 +755,10 @@ export class OcModelContext implements ModelContext {
         }
       }
       if (found === 0)
-        throw new RegenError("QUERY_NO_MATCH", "Shell: no faces matched on a single body");
+        throw new RegenError(
+          "QUERY_NO_MATCH",
+          "Shell: no faces matched on a single body",
+        );
 
       const op = scope.add(new oc.BRepOffsetAPI_MakeThickSolid());
       const progress = scope.add(new oc.Message_ProgressRange_1());
@@ -563,7 +784,12 @@ export class OcModelContext implements ModelContext {
           removeFaces.map((h) => h.name),
         );
       const shape = op.Shape();
-      const faces = propagateFaceNames(oc, op as BRepBuilderAPI_MakeShape, [body.faces], shape);
+      const faces = propagateFaceNames(
+        oc,
+        op as BRepBuilderAPI_MakeShape,
+        [body.faces],
+        shape,
+      );
       faces.fillUnnamed(owner);
       this.replaceBody(bodyIdx, { name: body.name, shape, faces });
     } finally {
@@ -582,7 +808,10 @@ export class OcModelContext implements ModelContext {
       .map((b, idx) => ({ b, idx }))
       .filter(({ b }) => bodies.some((h) => h.name === b.name));
     if (sources.length === 0)
-      throw new RegenError("QUERY_NO_MATCH", "Pattern/mirror: no bodies matched");
+      throw new RegenError(
+        "QUERY_NO_MATCH",
+        "Pattern/mirror: no bodies matched",
+      );
 
     for (const { b, idx } of sources) {
       let current = b;
@@ -610,17 +839,24 @@ export class OcModelContext implements ModelContext {
             );
             trsf.SetMirror_3(ax2);
           }
-          const xform = scope.add(new oc.BRepBuilderAPI_Transform_2(b.shape, trsf, true));
+          const xform = scope.add(
+            new oc.BRepBuilderAPI_Transform_2(b.shape, trsf, true),
+          );
           const copy = xform.Shape();
 
           if (merge) {
             // fuse copy into the (accumulating) source body
             const progress = scope.add(new oc.Message_ProgressRange_1());
-            const fuse = scope.add(new oc.BRepAlgoAPI_Fuse_3(current.shape, copy, progress));
+            const fuse = scope.add(
+              new oc.BRepAlgoAPI_Fuse_3(current.shape, copy, progress),
+            );
             const progress2 = scope.add(new oc.Message_ProgressRange_1());
             fuse.Build(progress2);
             if (!fuse.IsDone())
-              throw new RegenError("BOOLEAN_FAILED", "Pattern fuse failed in the kernel");
+              throw new RegenError(
+                "BOOLEAN_FAILED",
+                "Pattern fuse failed in the kernel",
+              );
             const result = fuse.Shape();
             // copies get positional names under the pattern feature; the
             // original instance keeps its semantic names via propagation
@@ -636,7 +872,11 @@ export class OcModelContext implements ModelContext {
           } else {
             const faces = new FaceNameMap(oc, copy);
             faces.fillUnnamed(`${owner}:${copyIndex}`);
-            this.pushBody({ name: `${owner}/body:${copyIndex}`, shape: copy, faces });
+            this.pushBody({
+              name: `${owner}/body:${copyIndex}`,
+              shape: copy,
+              faces,
+            });
           }
           copyIndex++;
         } finally {
@@ -644,6 +884,123 @@ export class OcModelContext implements ModelContext {
         }
       }
     }
+  }
+
+  /**
+   * Assembly mate — rigid reposition of the body owning `movingFace` so its
+   * face frame lands on `fixedFace`'s frame. Frames: origin = face centroid,
+   * Z = outward face normal, X = surface U direction. flip anti-aligns the
+   * normals (contact), offset translates along the fixed normal, angleDeg
+   * spins about it. Face names are propagated through the transform so
+   * downstream features (and further mates) keep working.
+   */
+  mate(
+    owner: FeatureId,
+    fixedFace: string,
+    movingFace: string,
+    options: MateOptions,
+  ): void {
+    const oc = this.oc;
+    const fixedFrame = this.faceFrame(fixedFace);
+    const movingFrame = this.faceFrame(movingFace);
+    if (!fixedFrame || !movingFrame)
+      throw new RegenError(
+        "QUERY_NO_MATCH",
+        `Mate: face "${!fixedFrame ? fixedFace : movingFace}" not found or not planar`,
+        [fixedFace, movingFace].filter(Boolean),
+      );
+    const movingIdx = this.bodies.findIndex((b) =>
+      b.faces.entries().some((e) => e.name === movingFace),
+    );
+    const fixedIdx = this.bodies.findIndex((b) =>
+      b.faces.entries().some((e) => e.name === fixedFace),
+    );
+    if (movingIdx === fixedIdx)
+      throw new RegenError(
+        "INVALID_PARAMS",
+        "Mate: both faces belong to the same body",
+      );
+    const body = this.bodies[movingIdx]!;
+
+    // target frame: fixed centroid + offset·n, Z anti-aligned when flipped,
+    // X = fixed U rotated about the fixed normal by angleDeg
+    const nF = fixedFrame.normal;
+    const angle = (options.angleDeg * Math.PI) / 180;
+    const xT = rotateVec(fixedFrame.u, nF, angle);
+    const zT: [number, number, number] = options.flip
+      ? [-nF[0], -nF[1], -nF[2]]
+      : [nF[0], nF[1], nF[2]];
+    const oT: [number, number, number] = [
+      fixedFrame.origin[0] + nF[0] * options.offset,
+      fixedFrame.origin[1] + nF[1] * options.offset,
+      fixedFrame.origin[2] + nF[2] * options.offset,
+    ];
+
+    const scope = new Scope();
+    try {
+      const ax3 = (
+        o: [number, number, number],
+        z: [number, number, number],
+        x: [number, number, number],
+      ) =>
+        scope.add(
+          new oc.gp_Ax3_3(
+            scope.add(new oc.gp_Pnt_3(...o)),
+            scope.add(new oc.gp_Dir_4(...z)),
+            scope.add(new oc.gp_Dir_4(...x)),
+          ),
+        );
+      const from = ax3(movingFrame.origin, movingFrame.normal, movingFrame.u);
+      const to = ax3(oT, zT, xT);
+      const trsf = scope.add(new oc.gp_Trsf_1());
+      trsf.SetDisplacement(from, to);
+      const xform = scope.add(
+        new oc.BRepBuilderAPI_Transform_2(body.shape, trsf, true),
+      );
+      const shape = xform.Shape();
+      const faces = propagateFaceNames(
+        oc,
+        xform as BRepBuilderAPI_MakeShape,
+        [body.faces],
+        shape,
+      );
+      faces.fillUnnamed(owner);
+      this.replaceBody(movingIdx, { name: body.name, shape, faces });
+    } finally {
+      scope.dispose();
+    }
+  }
+
+  /** Planar face frame: centroid origin + plane axes (outward normal). */
+  private faceFrame(
+    faceName: string,
+  ): {
+    origin: [number, number, number];
+    u: [number, number, number];
+    normal: [number, number, number];
+  } | null {
+    const basis = this.faceBasis(faceName);
+    if (!basis) return null;
+    const oc = this.oc;
+    for (const body of this.bodies) {
+      for (const { face, name } of body.faces.entries()) {
+        if (name !== faceName) continue;
+        const scope = new Scope();
+        try {
+          const props = scope.add(new oc.GProp_GProps_1());
+          oc.BRepGProp.SurfaceProperties_1(face, props, false, false);
+          const com = scope.add(props.CentreOfMass());
+          return {
+            origin: [com.X(), com.Y(), com.Z()],
+            u: basis.u,
+            normal: basis.normal,
+          };
+        } finally {
+          scope.dispose();
+        }
+      }
+    }
+    return null;
   }
 
   booleanBodies(
@@ -656,9 +1013,15 @@ export class OcModelContext implements ModelContext {
     const targetIdx = this.bodies.findIndex((b) => b.name === target.name);
     const toolIdx = this.bodies.findIndex((b) => b.name === tool.name);
     if (targetIdx < 0 || toolIdx < 0)
-      throw new RegenError("QUERY_NO_MATCH", "Boolean: target or tool body not found");
+      throw new RegenError(
+        "QUERY_NO_MATCH",
+        "Boolean: target or tool body not found",
+      );
     if (targetIdx === toolIdx)
-      throw new RegenError("INVALID_PARAMS", "Boolean: target and tool are the same body");
+      throw new RegenError(
+        "INVALID_PARAMS",
+        "Boolean: target and tool are the same body",
+      );
     const targetBody = this.bodies[targetIdx]!;
     const toolBody = this.bodies[toolIdx]!;
     const scope = new Scope();
@@ -666,15 +1029,30 @@ export class OcModelContext implements ModelContext {
       const progress = scope.add(new oc.Message_ProgressRange_1());
       const bop = scope.add(
         op === "union"
-          ? new oc.BRepAlgoAPI_Fuse_3(targetBody.shape, toolBody.shape, progress)
+          ? new oc.BRepAlgoAPI_Fuse_3(
+              targetBody.shape,
+              toolBody.shape,
+              progress,
+            )
           : op === "subtract"
-            ? new oc.BRepAlgoAPI_Cut_3(targetBody.shape, toolBody.shape, progress)
-            : new oc.BRepAlgoAPI_Common_3(targetBody.shape, toolBody.shape, progress),
+            ? new oc.BRepAlgoAPI_Cut_3(
+                targetBody.shape,
+                toolBody.shape,
+                progress,
+              )
+            : new oc.BRepAlgoAPI_Common_3(
+                targetBody.shape,
+                toolBody.shape,
+                progress,
+              ),
       );
       const progress2 = scope.add(new oc.Message_ProgressRange_1());
       bop.Build(progress2);
       if (!bop.IsDone())
-        throw new RegenError("BOOLEAN_FAILED", `Boolean ${op} failed in the kernel`);
+        throw new RegenError(
+          "BOOLEAN_FAILED",
+          `Boolean ${op} failed in the kernel`,
+        );
       const result = bop.Shape();
       const faces = propagateFaceNames(
         oc,
@@ -683,10 +1061,17 @@ export class OcModelContext implements ModelContext {
         result,
       );
       faces.fillUnnamed(owner);
-      this.replaceBody(targetIdx, { name: targetBody.name, shape: result, faces });
+      this.replaceBody(targetIdx, {
+        name: targetBody.name,
+        shape: result,
+        faces,
+      });
       // the tool body is consumed
       this.retired.push(toolBody.faces);
-      this.bodies.splice(this.bodies.findIndex((b) => b.name === tool.name), 1);
+      this.bodies.splice(
+        this.bodies.findIndex((b) => b.name === tool.name),
+        1,
+      );
       this.edgeCache = null;
     } finally {
       scope.dispose();
@@ -704,7 +1089,10 @@ export class OcModelContext implements ModelContext {
     const oc = this.oc;
     if (op === "new" || this.bodies.length === 0) {
       if (op === "cut")
-        throw new RegenError("BOOLEAN_FAILED", "Nothing to cut — the model has no bodies yet");
+        throw new RegenError(
+          "BOOLEAN_FAILED",
+          "Nothing to cut — the model has no bodies yet",
+        );
       this.pushBody({ name: `${owner}/body`, shape, faces });
       return;
     }
@@ -725,7 +1113,10 @@ export class OcModelContext implements ModelContext {
         const progress2 = scope.add(new oc.Message_ProgressRange_1());
         bop.Build(progress2);
         if (!bop.IsDone())
-          throw new RegenError("BOOLEAN_FAILED", `Boolean ${op} failed in the kernel`);
+          throw new RegenError(
+            "BOOLEAN_FAILED",
+            `Boolean ${op} failed in the kernel`,
+          );
         const result = bop.Shape();
         const merged = propagateFaceNames(
           oc,
@@ -734,7 +1125,11 @@ export class OcModelContext implements ModelContext {
           result,
         );
         merged.fillUnnamed(owner);
-        this.replaceBody(idx, { name: body.name, shape: result, faces: merged });
+        this.replaceBody(idx, {
+          name: body.name,
+          shape: result,
+          faces: merged,
+        });
       } finally {
         scope.dispose();
       }
@@ -777,4 +1172,25 @@ function nameShapeFaces(
     i++;
   }
   scope.dispose();
+}
+
+/** Rodrigues rotation of v about unit axis k by angle (radians). */
+function rotateVec(
+  v: [number, number, number],
+  k: [number, number, number],
+  angle: number,
+): [number, number, number] {
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+  const cross: [number, number, number] = [
+    k[1] * v[2] - k[2] * v[1],
+    k[2] * v[0] - k[0] * v[2],
+    k[0] * v[1] - k[1] * v[0],
+  ];
+  const dot = k[0] * v[0] + k[1] * v[1] + k[2] * v[2];
+  return [
+    v[0] * cos + cross[0] * sin + k[0] * dot * (1 - cos),
+    v[1] * cos + cross[1] * sin + k[1] * dot * (1 - cos),
+    v[2] * cos + cross[2] * sin + k[2] * dot * (1 - cos),
+  ];
 }

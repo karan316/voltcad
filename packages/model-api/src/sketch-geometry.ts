@@ -15,8 +15,10 @@ export interface PlaneBasis {
 }
 
 export function planeBasis(plane: SketchPlane, offset: number): PlaneBasis {
-  if (plane.kind === "face")
-    throw new Error("Face-plane basis comes from the kernel (getFaceBasis), not planeBasis()");
+  if (plane.kind !== "datum")
+    throw new Error(
+      "planeBasis() only handles base datum planes — face/datumFeature bases come from the kernel",
+    );
   // Right-handed: normal = u × v for each datum plane.
   const bases: Record<string, PlaneBasis> = {
     XY: { origin: [0, 0, 0], u: [1, 0, 0], v: [0, 1, 0], normal: [0, 0, 1] },
@@ -49,7 +51,11 @@ export function toUV(b: PlaneBasis, p: [number, number, number]): Point2 {
   ];
 }
 
-export function arcPoint(center: Point2, radius: number, angleDeg: number): Point2 {
+export function arcPoint(
+  center: Point2,
+  radius: number,
+  angleDeg: number,
+): Point2 {
   const a = (angleDeg * Math.PI) / 180;
   return [center[0] + radius * Math.cos(a), center[1] + radius * Math.sin(a)];
 }
@@ -77,7 +83,10 @@ export function entityEndpoints(e: SketchEntity): Point2[] {
       ];
     }
     case "arc":
-      return [arcPoint(e.center, e.radius, e.startAngle), arcPoint(e.center, e.radius, e.endAngle)];
+      return [
+        arcPoint(e.center, e.radius, e.startAngle),
+        arcPoint(e.center, e.radius, e.endAngle),
+      ];
     case "circle":
       return [e.center];
   }

@@ -1,9 +1,11 @@
 import {
   Box,
+  Boxes,
   Check,
   Circle,
   Cylinder,
   Home,
+  Magnet,
   Maximize,
   Minus,
   MousePointer2,
@@ -18,6 +20,7 @@ import {
 import { newFeatureId, q } from "@voltcad/model-api";
 import { useEditorStore } from "../state/document-store.ts";
 import { useSketchStore, type SketchTool } from "../state/sketch-store.ts";
+import { Slider } from "./ui/slider.tsx";
 
 /**
  * Floating modeling toolbar — mode-aware:
@@ -40,6 +43,9 @@ function ModelToolbar() {
   const redo = useEditorStore((s) => s.redo);
   const doc = useEditorStore((s) => s.doc);
   const activeFeatureId = useEditorStore((s) => s.activeFeatureId);
+  const explodeFactor = useEditorStore((s) => s.explodeFactor);
+  const setExplodeFactor = useEditorStore((s) => s.setExplodeFactor);
+  const bodyCount = useEditorStore((s) => s.scene?.bodies.length ?? 0);
   const beginSketch = useSketchStore((s) => s.begin);
   const selectedEdges = selection.filter((s) => s.kind === "edge");
   const selectedFaces = selection.filter((s) => s.kind === "face");
@@ -135,6 +141,25 @@ function ModelToolbar() {
     useEditorStore.getState().clearSelection();
   };
 
+  const addMate = () => {
+    if (selectedFaces.length !== 2) return;
+    // selection order: first picked face stays fixed, second body moves to it
+    addFeatures([
+      {
+        type: "mate",
+        name: "Mate",
+        params: {
+          fixed: selectedFaces[0]!.name,
+          moving: selectedFaces[1]!.name,
+          flip: true,
+          offset: 0,
+          angle: 0,
+        },
+      },
+    ]);
+    useEditorStore.getState().clearSelection();
+  };
+
   const edgeSuffix =
     selectedEdges.length > 0 ? ` (${selectedEdges.length} edges)` : " — select edges first";
 
@@ -190,6 +215,46 @@ function ModelToolbar() {
       >
         <Slice size={16} strokeWidth={1.7} />
       </button>
+      <button
+        className="tool-btn"
+        data-tip={
+          selectedFaces.length === 2
+            ? "Mate: snap 2nd body's face onto 1st"
+            : "Mate — select two faces on different bodies"
+        }
+        disabled={selectedFaces.length !== 2}
+        onClick={addMate}
+      >
+        <Magnet size={16} strokeWidth={1.7} />
+      </button>
+      <div className="tool-sep" />
+      <button
+        className="tool-btn"
+        data-tip={
+          bodyCount < 2
+            ? "Exploded view — needs at least two bodies"
+            : explodeFactor > 0
+              ? "Collapse exploded view"
+              : "Exploded view"
+        }
+        disabled={bodyCount < 2}
+        style={explodeFactor > 0 ? { color: "var(--accent)" } : undefined}
+        onClick={() => setExplodeFactor(explodeFactor > 0 ? 0 : 0.5)}
+      >
+        <Boxes size={16} strokeWidth={1.7} />
+      </button>
+      {explodeFactor > 0 && (
+        <div className="mx-1.5 w-24">
+          <Slider
+            value={[explodeFactor]}
+            onValueChange={(v) => setExplodeFactor(Array.isArray(v) ? (v[0] ?? 0) : v)}
+            min={0}
+            max={1}
+            step={0.01}
+            aria-label="Explode distance"
+          />
+        </div>
+      )}
       <div className="tool-sep" />
       <button
         className="tool-btn"

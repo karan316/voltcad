@@ -1,6 +1,7 @@
-import { MessageSquare, Layers, Zap } from "lucide-react";
+import { MessageSquare, Layers } from "lucide-react";
 import { ChatPanel } from "./ChatPanel.tsx";
 import { ModelPanel } from "./ModelPanel.tsx";
+import { Logo } from "./Logo.tsx";
 import { useEditorStore } from "../state/document-store.ts";
 
 /** Left sidebar: floating glass panel with brand header + CHAT / MODEL tabs. */
@@ -15,13 +16,8 @@ export function Sidebar(props: { onOpenSettings: () => void }) {
 
   return (
     <aside className="glass-panel z-10 flex w-80 shrink-0 flex-col overflow-hidden">
-      <div className="flex items-center gap-2 px-4 pt-4 pb-2">
-        <span
-          className="flex h-6 w-6 items-center justify-center rounded-md"
-          style={{ background: "var(--accent)", color: "var(--accent-contrast)" }}
-        >
-          <Zap size={13} strokeWidth={2.2} style={{ color: "var(--status)" }} fill="var(--status)" />
-        </span>
+      <div className="flex items-center gap-2.5 px-4 pt-4 pb-2">
+        <Logo size={22} />
         <span className="text-[14px] font-bold tracking-[0.16em]">VOLTCAD</span>
       </div>
 

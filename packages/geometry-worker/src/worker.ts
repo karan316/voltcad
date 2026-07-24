@@ -39,6 +39,15 @@ const api: GeometryWorkerApi = {
     return getContext()?.faceBasis(faceName) ?? null;
   },
 
+  async getPlaneBasis(plane) {
+    await getOC();
+    try {
+      return getContext()?.basisForPlane(plane) ?? null;
+    } catch {
+      return null; // datum feature not regenerated yet / face missing
+    }
+  },
+
   async describeBodies() {
     const ctx = getContext();
     if (!ctx) return [];
@@ -51,7 +60,13 @@ const api: GeometryWorkerApi = {
         const cmin = scope.add(bbox.CornerMin());
         const cmax = scope.add(bbox.CornerMax());
         const vProps = scope.add(new oc.GProp_GProps_1());
-        oc.BRepGProp.VolumeProperties_1(body.shape, vProps, false, false, false);
+        oc.BRepGProp.VolumeProperties_1(
+          body.shape,
+          vProps,
+          false,
+          false,
+          false,
+        );
         const com = scope.add(vProps.CentreOfMass());
         return {
           name: body.name,
@@ -102,10 +117,18 @@ const api: GeometryWorkerApi = {
     try {
       let volume = 0;
       let surfaceArea = 0;
-      let mx = 0, my = 0, mz = 0;
+      let mx = 0,
+        my = 0,
+        mz = 0;
       for (const body of ctx.bodies) {
         const vProps = scope.add(new oc.GProp_GProps_1());
-        oc.BRepGProp.VolumeProperties_1(body.shape, vProps, false, false, false);
+        oc.BRepGProp.VolumeProperties_1(
+          body.shape,
+          vProps,
+          false,
+          false,
+          false,
+        );
         const v = vProps.Mass();
         const com = scope.add(vProps.CentreOfMass());
         volume += v;
@@ -119,7 +142,8 @@ const api: GeometryWorkerApi = {
       return {
         volume,
         surfaceArea,
-        centerOfMass: volume > 0 ? [mx / volume, my / volume, mz / volume] : [0, 0, 0],
+        centerOfMass:
+          volume > 0 ? [mx / volume, my / volume, mz / volume] : [0, 0, 0],
       };
     } finally {
       scope.dispose();
@@ -158,7 +182,9 @@ const api: GeometryWorkerApi = {
     const scope = new Scope();
     try {
       // ensure a triangulation exists at export quality
-      scope.add(new oc.BRepMesh_IncrementalMesh_2(comp, 0.05, false, 0.3, true));
+      scope.add(
+        new oc.BRepMesh_IncrementalMesh_2(comp, 0.05, false, 0.3, true),
+      );
       const writer = scope.add(new oc.StlAPI_Writer());
       const progress = scope.add(new oc.Message_ProgressRange_1());
       writer.Write(comp, "/export.stl", progress);

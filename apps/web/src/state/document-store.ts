@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import * as Y from "yjs";
 import {
   createEmptyDocument,
   newFeatureId,
@@ -8,11 +9,38 @@ import {
   type PartDocument,
   type SceneUpdate,
 } from "@voltcad/model-api";
-import { getGeometryWorker, type MassProperties } from "@voltcad/geometry-worker";
-import { autosaveDocument, loadDocumentFromOpfs } from "../lib/opfs.ts";
+import {
+  getGeometryWorker,
+  WorkerTimeoutError,
+  type MassProperties,
+} from "@voltcad/geometry-worker";
+import {
+  autosaveYDoc,
+  getBlob,
+  loadDocumentFromOpfs,
+  loadYDocFromOpfs,
+  putBlob,
+} from "../lib/opfs.ts";
+import { fetchRelayBlob } from "../lib/blob-sync.ts";
+import {
+  INIT_ORIGIN,
+  LOCAL_ORIGIN,
+  isYDocEmpty,
+  loadIntoYDoc,
+  snapshotDoc,
+  undoManager,
+  yMutations,
+  ydoc,
+} from "./ydoc.ts";
 
 /**
  * Editor store — UI state + the regeneration orchestrator.
+ *
+ * The source of truth is the Yjs CRDT (see ydoc.ts). `doc` in this store is a
+ * derived plain-JSON snapshot so all consumers (worker, UI, AI tools) stay
+ * unchanged. Every local mutation is a Y transaction; a single doc observer
+ * re-snapshots, autosaves and schedules a regen — the same path remote
+ * collaborator edits will take.
  *
  * Invariants:
  *  - `doc` is immutable data; every mutation replaces it and schedules a regen.
@@ -42,6 +70,8 @@ interface EditorState {
   fitCounter: number;
   /** bump to ask the viewport for the isometric home view */
   homeCounter: number;
+  /** exploded-view separation, 0 = assembled (display-only, not persisted) */
+  explodeFactor: number;
 
   selection: Selection[];
   hovered: Selection | null;
@@ -55,6 +85,7 @@ interface EditorState {
   // actions
   bootstrap(): Promise<void>;
   replaceDocument(doc: PartDocument): void;
+  renameDocument(name: string): void;
   addFeatures(nodes: (Omit<FeatureNode, "id"> & { id?: string })[]): string[];
   updateFeatureParams(id: string, params: unknown): void;
   renameFeature(id: string, name: string): void;
@@ -72,6 +103,7 @@ interface EditorState {
   setSidebarTab(tab: "chat" | "model"): void;
   requestFit(): void;
   requestHome(): void;
+  setExplodeFactor(factor: number): void;
   undo(): void;
   redo(): void;
 
@@ -92,7 +124,12 @@ function defaultDocument(): PartDocument {
       params: {
         plane: { kind: "datum", plane: "XY" },
         entities: [
-          { id: "rect1", type: "rectangle", corner1: [-40, -25], corner2: [40, 25] },
+          {
+            id: "rect1",
+            type: "rectangle",
+            corner1: [-40, -25],
+            corner2: [40, 25],
+          },
           { id: "hole1", type: "circle", center: [20, 0], radius: 8 },
         ],
         constraints: [],
@@ -102,7 +139,12 @@ function defaultDocument(): PartDocument {
       id: extrudeId,
       type: "extrude",
       name: "Extrude 1",
-      params: { sketch: sketchId, distance: "thickness", symmetric: false, op: "new" },
+      params: {
+        sketch: sketchId,
+        distance: "thickness",
+        symmetric: false,
+        op: "new",
+      },
     },
   ];
   return doc;
@@ -119,6 +161,36 @@ let regenWaiters: (() => void)[] = [];
 export function regenSettled(): Promise<void> {
   if (!regenRunning) return Promise.resolve();
   return new Promise((resolve) => regenWaiters.push(resolve));
+}
+
+/**
+ * Imported file payloads live in the content-addressed blob store; the worker
+ * needs the actual text. Inflate blob references into `data` just before
+ * regen (in-memory cached, so this is cheap after the first pass).
+ */
+async function inflateBlobs(doc: PartDocument): Promise<PartDocument> {
+  let changed = false;
+  const features = await Promise.all(
+    doc.features.map(async (f) => {
+      if (f.type !== "import") return f;
+      const p = f.params as {
+        format: string;
+        data?: string;
+        blobHash?: string;
+      };
+      if (!p.blobHash || p.data) return f;
+      let data = await getBlob(p.blobHash);
+      if (data === null) {
+        // not local — a collaborator imported it; fetch from the relay
+        data = await fetchRelayBlob(p.blobHash);
+        if (data !== null) await putBlob(data); // cache locally for next regen
+      }
+      if (data === null) return f; // missing blob → feature errors in regen
+      changed = true;
+      return { ...f, params: { ...p, data } };
+    }),
+  );
+  return changed ? { ...doc, features } : doc;
 }
 
 async function runRegen(
@@ -141,7 +213,7 @@ async function runRegen(
     // latest-wins loop: keep regenerating until the doc stops changing
     do {
       regenPending = false;
-      const doc = get().doc;
+      const doc = await inflateBlobs(get().doc);
       const result = await worker.regenerate(doc);
       const statuses: Record<string, FeatureStatus> = {};
       for (const s of result.statuses) statuses[s.featureId] = s;
@@ -155,7 +227,15 @@ async function runRegen(
       set({ massProps: await worker.massProperties() });
     } while (regenPending);
   } catch (e) {
-    set({ kernelStatus: "error", kernelError: e instanceof Error ? e.message : String(e) });
+    if (e instanceof WorkerTimeoutError) {
+      // watchdog killed a hung kernel — next edit boots a fresh worker
+      set({ kernelStatus: "cold", kernelError: e.message });
+    } else {
+      set({
+        kernelStatus: "error",
+        kernelError: e instanceof Error ? e.message : String(e),
+      });
+    }
   } finally {
     regenRunning = false;
     set({ regenBusy: false });
@@ -167,23 +247,18 @@ async function runRegen(
 
 export const useEditorStore = create<EditorState>((set, get) => {
   /**
-   * Undo/redo: plain document snapshots. The doc is immutable JSON, so
-   * snapshots are just references — O(1) per edit, capped at 100 entries.
+   * The single write path: every Y transaction (local mutation, undo/redo,
+   * remote peer update) lands here — re-snapshot, autosave, regen.
    */
-  let past: PartDocument[] = [];
-  let future: PartDocument[] = [];
-
-  /** Replace the document, autosave, regenerate. The single write path. */
-  function commit(doc: PartDocument, fromHistory = false): void {
-    if (!fromHistory) {
-      past.push(get().doc);
-      if (past.length > 100) past.shift();
-      future = [];
-    }
-    set({ doc, canUndo: past.length > 0, canRedo: future.length > 0 });
-    autosaveDocument(doc);
+  ydoc.on("update", () => {
+    set({
+      doc: snapshotDoc(),
+      canUndo: undoManager.canUndo(),
+      canRedo: undoManager.canRedo(),
+    });
+    autosaveYDoc(() => Y.encodeStateAsUpdate(ydoc));
     void runRegen(get, (p) => set(p));
-  }
+  });
 
   return {
     doc: defaultDocument(),
@@ -197,6 +272,7 @@ export const useEditorStore = create<EditorState>((set, get) => {
     sceneVersion: 0,
     fitCounter: 0,
     homeCounter: 0,
+    explodeFactor: 0,
     selection: [],
     hovered: null,
     activeFeatureId: null,
@@ -205,80 +281,78 @@ export const useEditorStore = create<EditorState>((set, get) => {
     canRedo: false,
 
     async bootstrap() {
-      const saved = await loadDocumentFromOpfs();
-      if (saved && saved.features.length > 0) set({ doc: saved });
-      void runRegen(get, (p) => set(p));
+      // 1) CRDT binary is the primary save format
+      const update = await loadYDocFromOpfs();
+      if (update) {
+        try {
+          Y.applyUpdate(ydoc, update, INIT_ORIGIN);
+        } catch {
+          // corrupted save — fall through to legacy/default below
+        }
+      }
+      // 2) migrate a legacy plain-JSON save, else seed the default part
+      if (isYDocEmpty()) {
+        const legacy = await loadDocumentFromOpfs();
+        loadIntoYDoc(
+          legacy && legacy.features.length > 0 ? legacy : get().doc,
+          INIT_ORIGIN,
+        );
+      }
     },
 
     replaceDocument(doc) {
-      commit(doc);
+      loadIntoYDoc(doc, LOCAL_ORIGIN); // undoable full-state replace
+    },
+
+    renameDocument(name) {
+      yMutations.setName(name);
     },
 
     addFeatures(nodes) {
-      const doc = get().doc;
       const created = nodes.map((n) => ({
         ...n,
         id: n.id ?? newFeatureId(n.type),
       })) as FeatureNode[];
-      commit({ ...doc, features: [...doc.features, ...created] });
+      yMutations.addFeatures(created);
       return created.map((n) => n.id);
     },
 
     updateFeatureParams(id, params) {
-      const doc = get().doc;
-      commit({
-        ...doc,
-        features: doc.features.map((f) => (f.id === id ? { ...f, params } : f)),
-      });
+      yMutations.updateFeatureParams(id, params);
     },
 
     renameFeature(id, name) {
-      const doc = get().doc;
-      commit({ ...doc, features: doc.features.map((f) => (f.id === id ? { ...f, name } : f)) });
+      yMutations.renameFeature(id, name);
     },
 
     toggleSuppress(id) {
-      const doc = get().doc;
-      commit({
-        ...doc,
-        features: doc.features.map((f) =>
-          f.id === id ? { ...f, suppressed: !f.suppressed } : f,
-        ),
-      });
+      yMutations.toggleSuppress(id);
     },
 
     removeFeature(id) {
-      const doc = get().doc;
-      commit({ ...doc, features: doc.features.filter((f) => f.id !== id) });
+      yMutations.removeFeature(id);
       if (get().activeFeatureId === id) set({ activeFeatureId: null });
     },
 
     setParameter(name, value) {
-      const doc = get().doc;
-      commit({ ...doc, parameters: { ...doc.parameters, [name]: value } });
+      yMutations.setParameter(name, value);
     },
 
     removeParameter(name) {
-      const doc = get().doc;
-      const { [name]: _, ...rest } = doc.parameters;
-      commit({ ...doc, parameters: rest });
+      yMutations.removeParameter(name);
     },
 
     moveFeature(id, toIndex) {
-      const doc = get().doc;
-      const from = doc.features.findIndex((f) => f.id === id);
-      if (from < 0 || toIndex < 0 || toIndex > doc.features.length) return;
-      const features = [...doc.features];
-      const [moved] = features.splice(from, 1);
-      features.splice(toIndex > from ? toIndex - 1 : toIndex, 0, moved!);
-      commit({ ...doc, features });
+      yMutations.moveFeature(id, toIndex);
     },
 
     setRollback(index) {
       const doc = get().doc;
-      const rollback =
-        index === null || index >= doc.features.length ? undefined : Math.max(0, index);
-      commit({ ...doc, rollback });
+      yMutations.setRollback(
+        index === null || index >= doc.features.length
+          ? undefined
+          : Math.max(0, index),
+      );
     },
 
     setHovered(sel) {
@@ -291,7 +365,11 @@ export const useEditorStore = create<EditorState>((set, get) => {
       const cur = get().selection;
       const exists = cur.some((s) => s.name === sel.name);
       if (additive) {
-        set({ selection: exists ? cur.filter((s) => s.name !== sel.name) : [...cur, sel] });
+        set({
+          selection: exists
+            ? cur.filter((s) => s.name !== sel.name)
+            : [...cur, sel],
+        });
       } else {
         set({ selection: exists && cur.length === 1 ? [] : [sel] });
       }
@@ -317,25 +395,28 @@ export const useEditorStore = create<EditorState>((set, get) => {
       set({ homeCounter: get().homeCounter + 1 });
     },
 
+    setExplodeFactor(factor) {
+      set({ explodeFactor: Math.max(0, Math.min(1, factor)) });
+    },
+
     undo() {
-      const prev = past.pop();
-      if (!prev) return;
-      future.push(get().doc);
-      commit(prev, true);
+      undoManager.undo();
     },
 
     redo() {
-      const next = future.pop();
-      if (!next) return;
-      past.push(get().doc);
-      commit(next, true);
+      undoManager.redo();
     },
 
     async exportModel(format) {
       try {
         const worker = getGeometryWorker();
-        const data = format === "step" ? await worker.exportStep() : await worker.exportStl();
-        const blob = new Blob([data as BlobPart], { type: "application/octet-stream" });
+        const data =
+          format === "step"
+            ? await worker.exportStep()
+            : await worker.exportStl();
+        const blob = new Blob([data as BlobPart], {
+          type: "application/octet-stream",
+        });
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
@@ -344,7 +425,9 @@ export const useEditorStore = create<EditorState>((set, get) => {
         URL.revokeObjectURL(url);
       } catch (e) {
         // surface export failures in the status bar instead of swallowing them
-        set({ kernelError: `Export failed: ${e instanceof Error ? e.message : String(e)}` });
+        set({
+          kernelError: `Export failed: ${e instanceof Error ? e.message : String(e)}`,
+        });
       }
     },
   };
@@ -355,5 +438,7 @@ if (import.meta.env.DEV && typeof window !== "undefined") {
   (window as unknown as Record<string, unknown>).__voltcad = {
     store: useEditorStore,
     worker: getGeometryWorker,
+    // lazy to avoid a static import cycle (collab-store imports this module)
+    collab: () => import("./collab-store.ts").then((m) => m.useCollabStore),
   };
 }

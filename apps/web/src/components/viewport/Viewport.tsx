@@ -64,6 +64,7 @@ export function Viewport() {
         }
         if (state.fitCounter !== prev.fitCounter) manager.fitToModel();
         if (state.homeCounter !== prev.homeCounter) manager.homeView();
+        if (state.explodeFactor !== prev.explodeFactor) manager.setExplode(state.explodeFactor);
         if (state.hovered !== prev.hovered || state.selection !== prev.selection) {
           manager.setHighlights(state.hovered, state.selection);
         }

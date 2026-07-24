@@ -15,7 +15,8 @@ export type RegenErrorCode =
   | "KERNEL_FAILURE"
   | "FILLET_TOO_LARGE"
   | "BOOLEAN_FAILED"
-  | "UPSTREAM_FAILED";
+  | "UPSTREAM_FAILED"
+  | "MISSING_BLOB";
 
 export class RegenError extends Error {
   constructor(

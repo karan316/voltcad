@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "pnpm --filter @voltcad/web dev",
+    "relay": "node scripts/collab-relay.mjs",
     "build": "pnpm --filter @voltcad/web build",
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck"
@@ -19,5 +20,11 @@
       "lightningcss"
     ]
   },
-  "packageManager": "pnpm@10.33.0"
+  "packageManager": "pnpm@10.33.0",
+  "devDependencies": {
+    "lib0": "^0.2.117",
+    "ws": "^8.21.1",
+    "y-protocols": "^1.0.7",
+    "yjs": "^13.6.31"
+  }
 }

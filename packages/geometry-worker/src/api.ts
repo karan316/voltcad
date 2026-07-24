@@ -1,4 +1,10 @@
-import type { FeatureStatus, PartDocument, PlaneBasis, SceneUpdate } from "@voltcad/model-api";
+import type {
+  FeatureStatus,
+  PartDocument,
+  PlaneBasis,
+  SceneUpdate,
+  SketchPlane,
+} from "@voltcad/model-api";
 
 /**
  * RPC contract between the main thread and the geometry worker.
@@ -39,6 +45,8 @@ export interface GeometryWorkerApi {
   regenerate(doc: PartDocument): Promise<RegenResult>;
   /** Plane basis of a named planar face (sketch-on-face), or null. */
   getFaceBasis(faceName: string): Promise<PlaneBasis | null>;
+  /** Resolve any sketch plane (incl. datum features) to a basis, or null. */
+  getPlaneBasis(plane: SketchPlane): Promise<PlaneBasis | null>;
   /** Per-body summaries (bbox, volume, COM) for AI grounding. */
   describeBodies(): Promise<BodyDescription[]>;
   /** Minimum distance (mm) between two named entities, or null. */

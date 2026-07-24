@@ -5,6 +5,12 @@ import { chamferFeature, filletFeature } from "./fillet.ts";
 import { importFeature } from "./import.ts";
 import { shellFeature } from "./shell.ts";
 import {
+  datumPlaneFeature,
+  loftFeature,
+  sweepFeature,
+} from "./datum-sweep-loft.ts";
+import { mateFeature } from "./mate.ts";
+import {
   booleanFeature,
   circularPatternFeature,
   linearPatternFeature,
@@ -23,6 +29,10 @@ export {
   circularPatternFeature,
   mirrorFeature,
   booleanFeature,
+  datumPlaneFeature,
+  sweepFeature,
+  loftFeature,
+  mateFeature,
 };
 
 /** Build a registry containing all standard features. */
@@ -38,5 +48,9 @@ export function createStandardRegistry(): FeatureRegistry {
     .register(linearPatternFeature)
     .register(circularPatternFeature)
     .register(mirrorFeature)
-    .register(booleanFeature);
+    .register(booleanFeature)
+    .register(datumPlaneFeature)
+    .register(sweepFeature)
+    .register(loftFeature)
+    .register(mateFeature);
 }

@@ -2,6 +2,7 @@ import type { Expression } from "./expression.ts";
 import type { EntityQuery } from "./query.ts";
 import type { EntityHit } from "./tessellation.ts";
 import type { SketchEntity, SketchPlane } from "./sketch.ts";
+import type { PlaneBasis } from "./sketch-geometry.ts";
 import type { FeatureId } from "./ids.ts";
 
 /**
@@ -42,6 +43,28 @@ export interface RevolveOptions {
   op: BooleanOp;
 }
 
+export interface SweepOptions {
+  op: BooleanOp;
+}
+
+export interface LoftOptions {
+  /** Straight (ruled) transitions between sections instead of smooth. */
+  ruled?: boolean;
+  op: BooleanOp;
+}
+
+export interface MateOptions {
+  /**
+   * Anti-align the face normals (true = faces point at each other, the
+   * standard "mate" of two contact faces; false = normals aligned, "flush").
+   */
+  flip: boolean;
+  /** Gap along the fixed face normal, mm (slider/planar offset). */
+  offset: number;
+  /** Rotation about the fixed face normal, degrees (revolute angle). */
+  angleDeg: number;
+}
+
 export interface ModelContext {
   /** Evaluate a dimension expression against the document parameter table. */
   evaluate(expr: Expression): number;
@@ -54,16 +77,63 @@ export interface ModelContext {
    * into wires, wires into faces (outer loop + holes handled by the kernel).
    * Registers resulting faces as created by `owner` for later `q.created` use.
    */
-  buildProfile(owner: FeatureId, plane: SketchPlane, entities: SketchEntity[]): ShapeHandle[];
+  buildProfile(
+    owner: FeatureId,
+    plane: SketchPlane,
+    entities: SketchEntity[],
+  ): ShapeHandle[];
 
   /** Profiles previously built by a sketch feature earlier in the history. */
   profilesOf(sketch: FeatureId): ShapeHandle[];
 
+  /** Resolve any sketch plane (base datum, face, datum feature) to a basis. */
+  planeBasisOf(plane: SketchPlane): PlaneBasis;
+
+  /** Register a datum plane produced by a datum feature (referencable by sketches). */
+  defineDatumPlane(owner: FeatureId, basis: PlaneBasis): void;
+
   /** Sweep profiles linearly along the sketch-plane normal. */
-  extrude(owner: FeatureId, profiles: ShapeHandle[], options: ExtrudeOptions): void;
+  extrude(
+    owner: FeatureId,
+    profiles: ShapeHandle[],
+    options: ExtrudeOptions,
+  ): void;
 
   /** Revolve profiles about an axis lying in the sketch plane. */
-  revolve(owner: FeatureId, profiles: ShapeHandle[], options: RevolveOptions): void;
+  revolve(
+    owner: FeatureId,
+    profiles: ShapeHandle[],
+    options: RevolveOptions,
+  ): void;
+
+  /**
+   * Sweep profiles along a path sketch (open or closed chain of lines/arcs).
+   */
+  sweep(
+    owner: FeatureId,
+    profiles: ShapeHandle[],
+    pathSketch: FeatureId,
+    options: SweepOptions,
+  ): void;
+
+  /**
+   * Loft a solid through the closed profiles of two or more sketches, in
+   * history order of the given section sketch ids.
+   */
+  loft(owner: FeatureId, sections: FeatureId[], options: LoftOptions): void;
+
+  /**
+   * Assembly mate: rigidly reposition the body owning `movingFace` so that
+   * face's frame coincides with `fixedFace`'s frame (with flip/offset/angle).
+   * Face frames: origin = face centroid, Z = face normal. Covers fastened,
+   * planar, revolute-at-angle and slider-at-offset semantics.
+   */
+  mate(
+    owner: FeatureId,
+    fixedFace: string,
+    movingFace: string,
+    options: MateOptions,
+  ): void;
 
   /** Round the given edges. Throws FILLET_TOO_LARGE when the kernel rejects. */
   fillet(owner: FeatureId, edges: EntityHit[], radius: number): void;
@@ -112,4 +182,8 @@ export type BodyTransform =
       axisDir: [number, number, number];
       angleDeg: number;
     }
-  | { kind: "mirror"; planePoint: [number, number, number]; planeNormal: [number, number, number] };
+  | {
+      kind: "mirror";
+      planePoint: [number, number, number];
+      planeNormal: [number, number, number];
+    };

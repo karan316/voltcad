@@ -4,6 +4,12 @@
 /* class-based dark mode: html.dark */
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* Base UI orientation/state variants (used by ReUI components):
+   Base UI emits data-orientation="…" and bare data-disabled attributes */
+@custom-variant data-horizontal (&[data-orientation="horizontal"]);
+@custom-variant data-vertical (&[data-orientation="vertical"]);
+@custom-variant data-disabled (&[data-disabled]);
+
 /* ---- design tokens ------------------------------------------------------ */
 
 :root {

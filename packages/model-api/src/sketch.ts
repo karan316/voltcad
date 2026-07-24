@@ -85,5 +85,10 @@ export const sketchPlaneSchema = z.discriminatedUnion("kind", [
     /** Persistent name of a planar face, e.g. "ext1/cap:end". */
     face: z.string(),
   }),
+  z.object({
+    kind: z.literal("datumFeature"),
+    /** Feature id of a datum_plane feature earlier in the history. */
+    feature: z.string(),
+  }),
 ]);
 export type SketchPlane = z.infer<typeof sketchPlaneSchema>;

@@ -70,7 +70,12 @@ function toSegments(entities: SketchEntity[]): Segment[] {
           [x1, y2],
         ];
         for (let i = 0; i < 4; i++)
-          segs.push({ kind: "line", entId: `${e.id}/e${i}`, a: corners[i]!, b: corners[(i + 1) % 4]! });
+          segs.push({
+            kind: "line",
+            entId: `${e.id}/e${i}`,
+            a: corners[i]!,
+            b: corners[(i + 1) % 4]!,
+          });
         break;
       }
       case "arc":
@@ -86,7 +91,12 @@ function toSegments(entities: SketchEntity[]): Segment[] {
         });
         break;
       case "circle":
-        segs.push({ kind: "circle", entId: e.id, center: e.center, radius: e.radius });
+        segs.push({
+          kind: "circle",
+          entId: e.id,
+          center: e.center,
+          radius: e.radius,
+        });
         break;
     }
   }
@@ -110,10 +120,13 @@ interface Loop {
 function findLoops(segs: Segment[]): Loop[] {
   const loops: Loop[] = [];
   const used = new Set<number>();
-  const chainable = segs.map((s, i) => ({ s, i })).filter(({ s }) => s.kind !== "circle");
+  const chainable = segs
+    .map((s, i) => ({ s, i }))
+    .filter(({ s }) => s.kind !== "circle");
 
   // circles are trivially closed loops
-  for (const s of segs) if (s.kind === "circle") loops.push({ segments: [s], reversed: [false] });
+  for (const s of segs)
+    if (s.kind === "circle") loops.push({ segments: [s], reversed: [false] });
 
   for (const { s: start, i: startIdx } of chainable) {
     if (used.has(startIdx)) continue;
@@ -131,7 +144,8 @@ function findLoops(segs: Segment[]): Loop[] {
       const next = chainable.find(
         ({ s, i }) =>
           !used.has(i) &&
-          (near((s as { a: Point2 }).a, cursor) || near((s as { b: Point2 }).b, cursor)),
+          (near((s as { a: Point2 }).a, cursor) ||
+            near((s as { b: Point2 }).b, cursor)),
       );
       if (!next) break;
       const seg = next.s as Segment & { a: Point2; b: Point2 };
@@ -163,7 +177,8 @@ function samplePolygon(loop: Loop): Point2[] {
       }
     } else {
       const n = 32;
-      for (let k = 0; k < n; k++) pts.push(arcPoint(s.center, s.radius, (360 * k) / n));
+      for (let k = 0; k < n; k++)
+        pts.push(arcPoint(s.center, s.radius, (360 * k) / n));
     }
   }
   return pts;
@@ -174,21 +189,32 @@ function pointInPolygon(p: Point2, poly: Point2[]): boolean {
   for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
     const [xi, yi] = poly[i]!;
     const [xj, yj] = poly[j]!;
-    if (yi > p[1] !== yj > p[1] && p[0] < ((xj - xi) * (p[1] - yi)) / (yj - yi) + xi)
+    if (
+      yi > p[1] !== yj > p[1] &&
+      p[0] < ((xj - xi) * (p[1] - yi)) / (yj - yi) + xi
+    )
       inside = true;
   }
   return inside;
 }
 
 /** Proper segment-segment intersection (excluding shared endpoints). */
-function segmentsIntersect(a1: Point2, a2: Point2, b1: Point2, b2: Point2): boolean {
+function segmentsIntersect(
+  a1: Point2,
+  a2: Point2,
+  b1: Point2,
+  b2: Point2,
+): boolean {
   const d = (p: Point2, q: Point2, r: Point2) =>
     (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]);
   const d1 = d(b1, b2, a1);
   const d2 = d(b1, b2, a2);
   const d3 = d(a1, a2, b1);
   const d4 = d(a1, a2, b2);
-  return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0));
+  return (
+    ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) &&
+    ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))
+  );
 }
 
 /**
@@ -205,11 +231,16 @@ function assertLoopsDontCross(polygons: Point2[][]): void {
       for (let k = 0; k < a.length; k++) {
         for (let m = 0; m < b.length; m++) {
           if (
-            segmentsIntersect(a[k]!, a[(k + 1) % a.length]!, b[m]!, b[(m + 1) % b.length]!)
+            segmentsIntersect(
+              a[k]!,
+              a[(k + 1) % a.length]!,
+              b[m]!,
+              b[(m + 1) % b.length]!,
+            )
           ) {
             throw new RegenError(
               "INVALID_PARAMS",
-              "Sketch profile loops overlap/cross each other. Loops must be either fully separate or fully nested (nested = hole). To build a compound outline, use ONE closed chain of lines/arcs, or extrude separate shapes with op \"add\".",
+              'Sketch profile loops overlap/cross each other. Loops must be either fully separate or fully nested (nested = hole). To build a compound outline, use ONE closed chain of lines/arcs, or extrude separate shapes with op "add".',
             );
           }
         }
@@ -225,7 +256,12 @@ export interface BuiltProfile {
 }
 
 /** Build one OCCT edge for a segment. Returned edge is owned by the caller. */
-function buildEdge(oc: OC, basis: PlaneBasis, s: Segment, scope: Scope): TopoDS_Edge {
+function buildEdge(
+  oc: OC,
+  basis: PlaneBasis,
+  s: Segment,
+  scope: Scope,
+): TopoDS_Edge {
   const P = (p: Point2) => {
     const [x, y, z] = to3D(basis, p);
     return scope.add(new oc.gp_Pnt_3(x, y, z));
@@ -237,14 +273,18 @@ function buildEdge(oc: OC, basis: PlaneBasis, s: Segment, scope: Scope): TopoDS_
     return mk.Edge();
   }
   const [cx, cy, cz] = to3D(basis, s.center);
-  const ax2 = scope.add(new oc.gp_Ax2_3(scope.add(new oc.gp_Pnt_3(cx, cy, cz)), N()));
+  const ax2 = scope.add(
+    new oc.gp_Ax2_3(scope.add(new oc.gp_Pnt_3(cx, cy, cz)), N()),
+  );
   const circ = scope.add(new oc.gp_Circ_2(ax2, s.radius));
   if (s.kind === "circle") {
     const mk = scope.add(new oc.BRepBuilderAPI_MakeEdge_8(circ));
     return mk.Edge();
   }
   // arc: trimmed circle between endpoints, CCW around the plane normal
-  const mkArc = scope.add(new oc.GC_MakeArcOfCircle_3(circ, P(s.a), P(s.b), true));
+  const mkArc = scope.add(
+    new oc.GC_MakeArcOfCircle_3(circ, P(s.a), P(s.b), true),
+  );
   const trimmed = scope.add(mkArc.Value());
   const curveHandle = scope.add(new oc.Handle_Geom_Curve_2(trimmed.get()));
   const mk = scope.add(new oc.BRepBuilderAPI_MakeEdge_24(curveHandle));
@@ -268,7 +308,8 @@ export function buildProfiles(
   assertLoopsDontCross(polygons);
   const depth = loops.map((_, i) =>
     polygons.reduce(
-      (d, poly, j) => (j !== i && pointInPolygon(polygons[i]![0]!, poly) ? d + 1 : d),
+      (d, poly, j) =>
+        j !== i && pointInPolygon(polygons[i]![0]!, poly) ? d + 1 : d,
       0,
     ),
   );
@@ -276,22 +317,27 @@ export function buildProfiles(
   const results: BuiltProfile[] = [];
   const scope = new Scope();
   try {
-    const wires: { wire: TopoDS_Wire; tags: { edge: TopoDS_Edge; entId: string }[] }[] =
-      loops.map((loop) => {
-        const mkWire = scope.add(new oc.BRepBuilderAPI_MakeWire_1());
-        const tags: { edge: TopoDS_Edge; entId: string }[] = [];
-        for (const s of loop.segments) {
-          const edge = buildEdge(oc, basis, s, scope);
-          mkWire.Add_1(edge);
-          tags.push({ edge, entId: s.entId });
-        }
-        if (!mkWire.IsDone()) throw new RegenError("OPEN_PROFILE", "Failed to close sketch loop");
-        return { wire: mkWire.Wire(), tags };
-      });
+    const wires: {
+      wire: TopoDS_Wire;
+      tags: { edge: TopoDS_Edge; entId: string }[];
+    }[] = loops.map((loop) => {
+      const mkWire = scope.add(new oc.BRepBuilderAPI_MakeWire_1());
+      const tags: { edge: TopoDS_Edge; entId: string }[] = [];
+      for (const s of loop.segments) {
+        const edge = buildEdge(oc, basis, s, scope);
+        mkWire.Add_1(edge);
+        tags.push({ edge, entId: s.entId });
+      }
+      if (!mkWire.IsDone())
+        throw new RegenError("OPEN_PROFILE", "Failed to close sketch loop");
+      return { wire: mkWire.Wire(), tags };
+    });
 
     for (let i = 0; i < loops.length; i++) {
       if (depth[i]! % 2 !== 0) continue; // holes handled with their outer
-      const mkFace = scope.add(new oc.BRepBuilderAPI_MakeFace_15(wires[i]!.wire, true));
+      const mkFace = scope.add(
+        new oc.BRepBuilderAPI_MakeFace_15(wires[i]!.wire, true),
+      );
       const tags = [...wires[i]!.tags];
       for (let j = 0; j < loops.length; j++) {
         // attach holes nested directly inside this outer loop
@@ -301,7 +347,10 @@ export function buildProfiles(
         tags.push(...wires[j]!.tags);
       }
       if (!mkFace.IsDone())
-        throw new RegenError("OPEN_PROFILE", "Failed to build profile face from sketch");
+        throw new RegenError(
+          "OPEN_PROFILE",
+          "Failed to build profile face from sketch",
+        );
       // ShapeFix normalizes wire orientations (holes must run opposite to the
       // outer boundary — users draw in arbitrary direction).
       const fix = scope.add(new oc.ShapeFix_Face_2(mkFace.Face()));
@@ -319,12 +368,12 @@ export function buildProfiles(
           oc.TopAbs_ShapeEnum.TopAbs_SHAPE as never,
         ),
       );
-      for (; ex.More(); ex.Next()) faceEdges.push(oc.TopoDS.Edge_1(ex.Current()));
-      const remapped = tags
-        .map(({ edge, entId }) => ({
-          edge: faceEdges.find((fe) => fe.IsSame(edge)) ?? edge,
-          entId,
-        }));
+      for (; ex.More(); ex.Next())
+        faceEdges.push(oc.TopoDS.Edge_1(ex.Current()));
+      const remapped = tags.map(({ edge, entId }) => ({
+        edge: faceEdges.find((fe) => fe.IsSame(edge)) ?? edge,
+        entId,
+      }));
 
       results.push({ face: fixedFace, edgeTags: remapped });
     }
@@ -332,6 +381,79 @@ export function buildProfiles(
   } finally {
     // Wires/faces returned are TopoDS_Shape values (cheap handles into the
     // kernel); the builder objects themselves are freed here.
+    scope.dispose();
+  }
+}
+
+/**
+ * Build a single wire (open OR closed) from sketch entities, for use as a
+ * sweep path. Segments are chained by endpoint proximity starting from an
+ * arbitrary free end; construction geometry is excluded.
+ */
+export function buildPathWire(
+  oc: OC,
+  basis: PlaneBasis,
+  entities: SketchEntity[],
+): TopoDS_Wire {
+  const segs = toSegments(entities).filter(
+    (s) => s.kind !== "circle",
+  ) as (Segment & {
+    a: Point2;
+    b: Point2;
+  })[];
+  if (segs.length === 0)
+    throw new RegenError(
+      "OPEN_PROFILE",
+      "Path sketch has no line/arc entities to sweep along",
+    );
+
+  // count endpoint occurrences to find a free end (open chain start)
+  const endpointUses = (p: Point2) =>
+    segs.reduce(
+      (n, s) => n + (near(s.a, p) ? 1 : 0) + (near(s.b, p) ? 1 : 0),
+      0,
+    );
+  const startIdx = segs.findIndex(
+    (s) => endpointUses(s.a) === 1 || endpointUses(s.b) === 1,
+  );
+  const first = segs[startIdx >= 0 ? startIdx : 0]!;
+  const firstReversed =
+    startIdx >= 0 && endpointUses(first.b) === 1 && endpointUses(first.a) !== 1;
+
+  const ordered: { seg: (typeof segs)[number]; reversed: boolean }[] = [
+    { seg: first, reversed: firstReversed },
+  ];
+  const used = new Set([segs.indexOf(first)]);
+  let cursor = firstReversed ? first.a : first.b;
+  for (;;) {
+    const nextIdx = segs.findIndex(
+      (s, i) => !used.has(i) && (near(s.a, cursor) || near(s.b, cursor)),
+    );
+    if (nextIdx < 0) break;
+    const seg = segs[nextIdx]!;
+    const reversed = !near(seg.a, cursor);
+    ordered.push({ seg, reversed });
+    used.add(nextIdx);
+    cursor = reversed ? seg.a : seg.b;
+  }
+  if (used.size !== segs.length)
+    throw new RegenError(
+      "OPEN_PROFILE",
+      "Path sketch entities must form a single connected chain",
+    );
+
+  const scope = new Scope();
+  try {
+    const mkWire = scope.add(new oc.BRepBuilderAPI_MakeWire_1());
+    for (const { seg } of ordered)
+      mkWire.Add_1(buildEdge(oc, basis, seg, scope));
+    if (!mkWire.IsDone())
+      throw new RegenError(
+        "OPEN_PROFILE",
+        "Failed to build a wire from the path sketch",
+      );
+    return mkWire.Wire();
+  } finally {
     scope.dispose();
   }
 }
